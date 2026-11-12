@@ -69,7 +69,7 @@
 **落到系统里**
 
 - 假说卡必填三问：对手是谁，为什么会持续付钱，我凭什么能拿到。
-- 研究项目按收益来源组织，而不是按技术指标组织。
+- 每个信号登记它对应的收益来源（上表六类之一）。说不出属于哪一类的信号，按原则 2 适用更高的门槛。
 - 每条结论注明容量和拥挤程度的监控方法。
 
 ---
@@ -83,10 +83,13 @@
 - **期权流。** 期权的供需会影响期权价格（Gârleanu, Pedersen & Poteshman, 2009）。做市商为对冲期权头寸而买卖标的，会在日内放大或抑制价格波动（Baltussen, Da, Lammers & Martens, 2021）。后一条的证据来自股指，在加密市场尚未被证实。
 - **订单流。** 成交会推动价格，推动的幅度与市场深度成反比（Kyle, 1985）。买卖价差是做市商对"对手可能知情"的补偿（Glosten & Milgrom, 1985）。短时间内的价格变化主要由盘口的订单流失衡驱动（Cont, Kukanov & Stoikov, 2014）。
 - **成本与容量。** 冲击成本大致随交易量的平方根增长，所以每个策略都有容量上限，超过之后优势被自己的交易吃掉。
+- **广度。** 主动管理的基本定律（Grinold, 1989）：组合的信息比率约等于"单个预测的质量 × √独立下注的数量"。许多微弱而独立的预测合在一起，可以强过一个强预测。文艺复兴的大奖章据称只对了约 50.75% 的交易，靠的就是广度。关键在"独立"：高度相关的品种不增加广度。
 - **组合构建。** 经典的均值-方差优化对输入的误差极其敏感，直接使用会把估计误差放大成集中持仓。实践中用收缩估计、风险平价或层次化方法代替。
 
 **落到系统里**
 
+- 单一模型：所有信号在同一个组合里合成，按边际贡献评估（[决策 0006](decisions/0006-single-model.md)）。
+- 研究宇宙广度优先，按有效广度而不是品种数量计算（[决策 0007](decisions/0007-breadth-first-universe.md)）。
 - 关系注册表：每条无套利关系登记涉及的品种、公式、成本模型，以及"这个价差为什么能存在"。
 - 波动率曲面、偏斜、期限结构的标准计算。
 - 订单流和期权流的标准度量。
@@ -252,6 +255,8 @@
 - Gelman, A. & Loken, E. (2013). The Garden of Forking Paths. 工作论文。
 - Glosten, L. & Milgrom, P. (1985). Bid, Ask and Transaction Prices in a Specialist Market with Heterogeneously Informed Traders. *Journal of Financial Economics*, 14(1).
 - Grossman, S. & Stiglitz, J. (1980). On the Impossibility of Informationally Efficient Markets. *American Economic Review*, 70(3).
+- Grinold, R. (1989). The Fundamental Law of Active Management. *Journal of Portfolio Management*, 15(3).
+- Grinold, R. & Kahn, R. (2000). *Active Portfolio Management*, 2nd ed. McGraw-Hill.
 - Gu, S., Kelly, B. & Xiu, D. (2020). Empirical Asset Pricing via Machine Learning. *Review of Financial Studies*, 33(5).
 - Harvey, C., Liu, Y. & Zhu, H. (2016). … and the Cross-Section of Expected Returns. *Review of Financial Studies*, 29(1).
 - Hasbrouck, J. (1995). One Security, Many Markets: Determining the Contributions to Price Discovery. *Journal of Finance*, 50(4).
