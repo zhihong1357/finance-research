@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Data never lives in this repository (see docs/decisions/0003-data-storage.md)
+data/
+*.parquet
+*.csv.gz
+
+# Secrets
+.env
+*.key
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
