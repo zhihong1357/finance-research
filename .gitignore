@@ -11,7 +11,7 @@ build/
 *.egg-info/
 
 # Data never lives in this repository (see docs/decisions/0003-data-storage.md)
-data/
+/data/
 *.parquet
 *.csv.gz
 
