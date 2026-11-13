@@ -379,6 +379,7 @@ flowchart LR
 | Binance 归档的发布时间与校验和 | 逐日文件约晚 1 到 2 天出现（11-13 05:00 UTC 时 11-11 已有、11-12 还没有）；每个文件配一个 `.CHECKSUM`，内容是 SHA-256 | 2026-11-13 实测 |
 | Bybit 公开归档 `public.bybit.com/trading/` | 2,137 个目录，其中 1,144 个 USDT 合约；含已下架品种（SRMUSDT、LUNAUSDT、FTTUSDT、MATICUSDT 等）；BTCUSDT 从 2020-03-25 起；没有官方校验和文件，只有 HTTP 的 ETag；BTCUSDT 单日约 65 MB | 2026-11-13 实测 |
 | 从 GitHub Actions 读写 Hugging Face | 1 KB、1 MB、32 MB 各 3 轮，9 次写入读回全部核对一致，46 次调用 0 次失败。32 MB：上传中位数 7.0 秒（约 4.8 MB/s），下载 10.9 秒（约 3.1 MB/s）。小文件每次提交约 3 秒、每次读取约 2 秒，几乎全是固定开销，所以必须攒批 | 2026-11-13 实测，[存储自检第 43454712772 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43454712772) |
+| 快照数据源的大小 | Deribit 每次 6 个请求共约 3.1 MB（USDC 期权约 2 MB、3,200 个合约；BTC 期权约 980 个）；Hyperliquid 每次约 72 KB、235 个永续。从 GitHub Actions 访问 Deribit、OKX、Hyperliquid 都可行（旧仓库的录制） | 2026-11-14 实测 |
 | 中断通知与恢复 | 演练中，故意失败的数据源超过上限后，下一次监控开出问题（[#16](https://github.com/zhihong1357/finance-research/issues/16)，由 github-actions 机器人开）；恢复后下一次监控留言并关闭。同一次采集里另一个数据源照常入库。用 `GITHUB_TOKEN` 请求启用定时任务的调用成功 | 2026-11-13 实测 |
 | 宏观的历史公布版本 | FRED 接口按 `realtime_start`、`realtime_end` 返回历史版本（需要免费注册的 API 密钥），但它的条款禁止存档，见 7.5。费城联储的实时数据集（RTDSM）提供主要宏观变量的全部历史版本下载 | [FRED 文档](https://fred.stlouisfed.org/docs/api/fred/realtime_period.html)；[费城联储](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists) |
 
@@ -389,6 +390,7 @@ flowchart LR
 - 用接口启用定时工作流能否重置 60 天的计时。GitHub 文档没有说明，一个步骤之内也无法实测（要等 60 天）。对策是不依赖它：监控在 45 天时开问题提醒所有者，合并任意拉取请求即可（2.2）。
 - 费城联储实时数据集、美国劳工统计局等原始发布机构、CFTC 的使用条款（2.6）。
 - Bybit 公开归档的专门条款。只找到 Bybit 接口条款，其中禁止把接口用于商业利用（2.4）。
+- Binance 和 Bybit 的实时接口能否从 GitHub Actions 访问。运行器在美国，两家对美国地址可能有限制；它们的历史主要靠公开归档（2.4），实时快照需要时再实测。
 
 ### 7.5 数据使用条款
 
@@ -402,8 +404,10 @@ flowchart LR
 | Cboe 网站（延迟期权链） | 下载一份供个人非商业使用 | 网站条款把"存入电子检索系统"列为需事先书面同意的行为；网站声明内容不是供交易使用的 | 所有者已决定先申请许可，获批前暂停录制（[决策 0009](decisions/0009-cboe-option-chains.md)） |
 | FRED | 个人、非商业地下载和使用 | 禁止用接口存储、缓存、存档，或把内容并入数据库；禁止用接口的数据训练机器学习模型；禁止批量下载 | 不把 FRED 作为原始层的数据源。宏观的历史版本改从原始发布机构和费城联储实时数据集获取 |
 | 纽约联储（SOFR 等参考利率） | 以人工或自动方式访问；下载、存储、复制、分发、制作派生作品 | 使用或分发参考利率时附上规定的声明 | 可以存档和使用 |
+| OKX | 市场数据只用于"你自己的个人、非商业的交易和账户管理"（接口协议第 9.4 条） | 不得转售、转发、发布；不得用于与 OKX 数据业务竞争的产品；不得用自动化手段以超出个人交易需要的规模抓取；不得用于要商业化的机器学习模型 | 研究不在明文允许之列，暂不录制（待决定第 10 项） |
+| Hyperliquid | 未找到针对接口数据的条款（2026-11-14 查过） | — | 作为快照录制；数据源目录里标明条款未核实 |
 
-来源：[Binance Vision 数据集条款](https://data.binance.vision/Binance_Vision-Terms_of_Use.pdf)；[Bybit 接口条款](https://www.bybit.com/common-static/compliance/legal/BYBIT/df1923006718fbba8ba70d7d762b9866.pdf)；[Deribit 会员条款](https://support.deribit.com/hc/en-us/articles/25944532191645-Deribit-Exchange-Membership-Terms-Deribit-FZE)；[Deribit 2021 年条款更新](https://insights.deribit.com/exchange-updates/deribit-updates-terms-of-service-as-of-29-january-2021/)；[Cboe 网站条款](https://www.cboe.com/terms)；[FRED 条款](https://fred.stlouisfed.org/legal/terms/)；[纽约联储条款](https://www.newyorkfed.org/privacy/termsofuse.html)。
+来源：[Binance Vision 数据集条款](https://data.binance.vision/Binance_Vision-Terms_of_Use.pdf)；[Bybit 接口条款](https://www.bybit.com/common-static/compliance/legal/BYBIT/df1923006718fbba8ba70d7d762b9866.pdf)；[Deribit 会员条款](https://support.deribit.com/hc/en-us/articles/25944532191645-Deribit-Exchange-Membership-Terms-Deribit-FZE)；[Deribit 2021 年条款更新](https://insights.deribit.com/exchange-updates/deribit-updates-terms-of-service-as-of-29-january-2021/)；[Cboe 网站条款](https://www.cboe.com/terms)；[FRED 条款](https://fred.stlouisfed.org/legal/terms/)；[纽约联储条款](https://www.newyorkfed.org/privacy/termsofuse.html)；[OKX 接口协议](https://www.okx.com/en-us/help/okx-api-agreement)（2026-03-26 发布）。
 
 ## 8. AI 助手的位置
 

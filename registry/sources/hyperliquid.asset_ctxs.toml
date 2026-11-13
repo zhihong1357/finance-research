@@ -1,0 +1,13 @@
+id = "hyperliquid.asset_ctxs"
+name = "Hyperliquid 全部永续的资金费率、持仓量与价格（快照）"
+url = "https://api.hyperliquid.xyz/info"
+access = "snapshot"
+redownloadable = false
+event_time = "抓取时刻（UTC）"
+available_at = "抓取时刻（UTC）"
+rate_limit = "公开接口；每次运行 1 个请求"
+terms_checked = false
+known_issues = [
+  "资金费率的历史可以事后补取，持仓量、标记价格等不能，所以按快照录制",
+  "没有找到针对接口数据的专门条款（2026-11-14 查过）",
+]

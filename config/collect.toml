@@ -4,6 +4,15 @@
 [groups.every8h]
 cron = "17 */8 * * *"           # 每 8 小时，在第 17 分钟（避开整点的拥挤）
 
+[groups.every4h]
+cron = "23 */4 * * *"           # 每 4 小时：快照类数据源，错过就补不回来
+
+[http]
+timeout_seconds = 30
+retries = 2                     # 超时、断线、429、5xx 时重试的次数
+retry_wait_seconds = 5
+user_agent = "finresearch/0.1 (personal research; https://github.com/zhihong1357/finance-research)"
+
 [sources."heartbeat.canary"]
 group = "every8h"
 max_age_hours = 17              # 超过这么久没有新记录就算中断：两次运行的间隔加一小时余量
@@ -16,6 +25,20 @@ max_age_hours = 17
 added = "2026-11-13T00:00:00Z"
 enabled = false                 # 演练已完成（问题 #16 开出又自动关闭）；需要再次演练时打开
 simulate_failure = false
+
+[sources."deribit.book_summary"]
+group = "every4h"
+max_age_hours = 9               # 两次运行的间隔加一小时余量
+added = "2026-11-15T00:00:00Z"
+enabled = true
+currencies = ["BTC", "ETH", "USDC"]   # USDC 下面是线性的期货、永续和期权（SOL、XRP 等）
+kinds = ["future", "option"]
+
+[sources."hyperliquid.asset_ctxs"]
+group = "every4h"
+max_age_hours = 9
+added = "2026-11-15T00:00:00Z"
+enabled = true
 
 [monitor]
 issue_marker = "finresearch:outage"   # 监控开的问题里带这个标记，用来认出自己开过的问题
