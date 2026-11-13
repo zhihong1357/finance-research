@@ -50,3 +50,9 @@ jobs:
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: uv run finresearch registry check-append-only --base "$BASE"
+
+      - name: 账本引用的代码版本都在历史里
+        run: uv run finresearch registry check-commits
+
+      - name: 从空白状态重现合成数据上的试验
+        run: uv run finresearch reproduce --synthetic

@@ -3,10 +3,24 @@ from pathlib import Path
 
 from finresearch.core.fingerprint import canonical_json, digest_bytes
 from finresearch.core.time import utc
-from finresearch.registry.ledger import append_owner_decision, append_trial, read_chain
-from finresearch.registry.models import DecisionKind, Segment
-from finresearch.registry.validate import OWNER_DECISIONS, TRIALS, check
-from tests.registry.conftest import CARD, END_OF_EXPLORATION, manifest, registered, write_registry
+from finresearch.registry.ledger import (
+    append_owner_decision,
+    append_refusal,
+    append_trial,
+    read_chain,
+)
+from finresearch.registry.models import DecisionKind, RefusalKind, Segment
+from finresearch.registry.validate import OWNER_DECISIONS, REFUSALS, TRIALS, check
+from tests.registry.conftest import (
+    CARD,
+    CONFIG,
+    END_OF_EXPLORATION,
+    OUTPUT,
+    manifest,
+    registered,
+    write_registry,
+    write_report,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 END_OF_CONFIRMATION = utc(2028, 2, 29)
@@ -20,15 +34,18 @@ def _trial(
     hypothesis: str = "H-0001",
     vault_approval: str | None = None,
 ) -> None:
-    append_trial(
+    trial = append_trial(
         root / TRIALS,
         hypothesis=hypothesis,
         segment=segment,
         manifest=manifest(clock_limit=clock),
+        config=CONFIG,
+        output_fingerprint=OUTPUT,
         metrics={"t": 1.0},
         recorded_at=at,
         vault_approval=vault_approval,
     )
+    write_report(root, trial)
 
 
 def _has(problems: list[str], fragment: str) -> bool:
@@ -155,3 +172,23 @@ def test_ids_must_run_in_sequence_and_time_forward(root: Path) -> None:
     problems = check(root)
     assert _has(problems, "id T-000005 out of sequence")
     assert _has(problems, "recorded_at goes backwards")
+
+
+def test_refusals_are_checked(root: Path) -> None:
+    log = root / REFUSALS
+    for hypothesis in ("H-0001", "H-0002"):
+        append_refusal(
+            log,
+            hypothesis=hypothesis,
+            segment=Segment.VAULT,
+            study="s",
+            kind=RefusalKind.VAULT_SEALED,
+            detail="the owner has not approved opening the vault",
+            commit="b" * 40,
+            dirty=False,
+            recorded_at=utc(2026, 11, 13),
+        )
+    assert check(root) == [f"{REFUSALS}:2: unknown hypothesis H-0002"]
+    lines = log.read_bytes().split(b"\n")
+    log.write_bytes(lines[1] + b"\n")
+    assert any("hash chain broken" in p for p in check(root))

@@ -1,0 +1,43 @@
+id = "H-0001"
+title = "细线：时点查询把修订挡在回测之外"
+program = "P0"
+return_source = "none"
+mechanism = "宏观指标先公布含误差的首发值，之后再修订。决策时刻只能看到首发值；用修订后的数据回测，等于把未来的信息放进了过去。在真相已知的合成世界里，两种做法的相关系数都有理论值，流程算得对不对可以直接核对。"
+counterparty = "不适用：元研究，研究对象是流程本身"
+why_persistent = "不适用：元研究"
+why_us = "不适用：元研究"
+falsification = "按决策时刻取数得到的相关系数，其 95% 置信区间不包含理论值 0.349；或者时点值与修订值没有逐对不同（说明接口把修订漏了进来）"
+prior = 0.9
+data = ["synthetic.thin_slice"]
+power = "探索段 141 对，相关系数的标准误约 0.08，足以区分理论值 0.349 与 0.447，但单次抽样仍可能落在区间之外（5% 的概率）"
+
+[scope]
+universe = "synthetic"
+instruments = "合成的月度指标和月度收益"
+horizon = "2 个月"
+output = "none"
+
+[plan]
+metric = "首发值与 2 个月后收益的皮尔逊相关系数"
+test = "费希尔变换的 95% 置信区间是否包含理论值；时点值与修订值逐对比较"
+
+[plan.exploration]
+start = 2000-01-01
+end = 2011-12-31
+
+[plan.confirmation]
+start = 2012-01-01
+end = 2016-12-31
+
+[plan.vault]
+start = 2017-01-01
+end = 2019-12-31
+
+[[history]]
+at = 2026-11-13T00:00:00Z
+status = "draft"
+note = "Phase 1.6 的细线：用合成数据把各层接起来跑一遍"
+
+[[history]]
+at = 2026-11-13T00:00:00Z
+status = "exploring"

@@ -1,4 +1,4 @@
-"""Compare the registry with an earlier commit: history may only grow.
+"""Compare the registry with git history: history may only grow, recorded code must stay.
 
 The hash chain inside each log catches an edited line, but not a log rewritten
 from scratch with a fresh, internally consistent chain. Comparing with git
@@ -7,6 +7,10 @@ history catches that too:
 * each append-only log at ``base`` must be a byte-for-byte prefix of the log now;
 * each hypothesis card at ``base`` keeps its history entries unchanged (new
   entries may follow), and a card registered at ``base`` keeps its plan exactly.
+
+``check_commits`` adds one more rule: every commit the ledger records must be
+in the history of the current checkout, or the trial can never be rerun. Pull
+requests are therefore merged with a merge commit, never squashed or rebased.
 """
 
 import shutil
@@ -15,8 +19,9 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from finresearch.core.provenance import ProvenanceError
-from finresearch.registry.validate import APPEND_ONLY, HYPOTHESES
+from finresearch.core.provenance import ProvenanceError, RunManifest
+from finresearch.registry.ledger import ChainError, read_chain
+from finresearch.registry.validate import APPEND_ONLY, HYPOTHESES, TRIALS
 
 _NO_COMMIT = "0" * 40  # what GitHub reports as "before" for the first push of a branch
 
@@ -84,4 +89,24 @@ def _check_card(repo: Path, base: str, rel: Path) -> list[str]:
         "plan"
     ):
         problems.append(f"{rel}: the plan was changed after registration")
+    return problems
+
+
+def check_commits(repo: Path) -> list[str]:
+    """Every commit recorded in the ledger is an ancestor of ``HEAD``."""
+    try:
+        rows = read_chain(repo / TRIALS)
+    except ChainError:
+        return []  # reported by the schema check
+    problems: list[str] = []
+    for n, row in enumerate(rows, start=1):
+        try:
+            commit = RunManifest.from_dict(row["manifest"]).code.commit
+        except KeyError, TypeError, ValueError, ProvenanceError:
+            continue  # reported by the schema check
+        if _git_bytes(repo, "merge-base", "--is-ancestor", commit, "HEAD") is None:
+            problems.append(
+                f"{TRIALS}:{n}: commit {commit[:12]} is not in this history "
+                "(was a pull request squashed or rebased? merge with a merge commit)"
+            )
     return problems

@@ -11,7 +11,14 @@ from finresearch.registry.appendonly import check_append_only
 from finresearch.registry.ledger import append_trial
 from finresearch.registry.models import Segment
 from finresearch.registry.validate import TRIALS, check
-from tests.registry.conftest import manifest, registered, write_registry
+from tests.registry.conftest import (
+    CONFIG,
+    OUTPUT,
+    manifest,
+    registered,
+    write_registry,
+    write_report,
+)
 
 GIT = shutil.which("git") or "git"
 
@@ -33,14 +40,17 @@ def _commit(repo: Path, message: str) -> str:
 
 
 def _append(repo: Path, t: float, at_day: int) -> None:
-    append_trial(
+    trial = append_trial(
         repo / TRIALS,
         hypothesis="H-0001",
         segment=Segment.EXPLORATION,
         manifest=manifest(),
+        config=CONFIG,
+        output_fingerprint=OUTPUT,
         metrics={"t": t},
         recorded_at=utc(2026, 11, at_day),
     )
+    write_report(repo, trial)
 
 
 @pytest.fixture

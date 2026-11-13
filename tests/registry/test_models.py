@@ -14,7 +14,7 @@ from finresearch.registry.models import (
     Status,
     TrialRecord,
 )
-from tests.registry.conftest import CARD, SOURCE, manifest, registered
+from tests.registry.conftest import CARD, CONFIG, OUTPUT, SOURCE, manifest, registered
 
 
 def _card(text: str = CARD, **changes: object) -> HypothesisCard:
@@ -140,7 +140,9 @@ def _trial(**changes: object) -> TrialRecord:
         "hypothesis": "H-0001",
         "segment": "exploration",
         "manifest": m.to_dict(),
+        "config": CONFIG,
         "result_fingerprint": str(m.fingerprint),
+        "output_fingerprint": str(OUTPUT),
         "metrics": {"t": 1.2},
         "prev": None,
     }
@@ -150,6 +152,8 @@ def _trial(**changes: object) -> TrialRecord:
 
 def test_trial_records() -> None:
     assert _trial().segment is Segment.EXPLORATION
+    with pytest.raises(ValidationError, match="config does not match"):
+        _trial(config={"lookback": 21})
     with pytest.raises(ValidationError, match="local changes"):
         _trial(
             manifest=manifest(dirty=True).to_dict(),

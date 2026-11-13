@@ -41,12 +41,16 @@ HYPOTHESIS_ID = re.compile(r"H-\d{4}")
 TRIAL_ID = re.compile(r"T-\d{6}")
 DECISION_ID = re.compile(r"D-\d{4}")
 RELATION_ID = re.compile(r"R-\d{4}")
+REFUSAL_ID = re.compile(r"Q-\d{6}")
+COMMIT = re.compile(r"[0-9a-f]{40}")
 SOURCE_ID = re.compile(r"[a-z0-9]+(\.[a-z0-9_]+)+")
 
 HypothesisId = Annotated[str, StringConstraints(pattern=HYPOTHESIS_ID.pattern)]
 TrialId = Annotated[str, StringConstraints(pattern=TRIAL_ID.pattern)]
 DecisionId = Annotated[str, StringConstraints(pattern=DECISION_ID.pattern)]
 RelationId = Annotated[str, StringConstraints(pattern=RELATION_ID.pattern)]
+RefusalId = Annotated[str, StringConstraints(pattern=REFUSAL_ID.pattern)]
+CommitId = Annotated[str, StringConstraints(pattern=COMMIT.pattern)]
 SourceId = Annotated[str, StringConstraints(pattern=SOURCE_ID.pattern)]
 
 
@@ -85,6 +89,7 @@ class ReturnSource(StrEnum):
     INFORMATION = "information"
     ARBITRAGE = "arbitrage"
     UNKNOWN = "unknown"
+    NONE = "none"  # meta-research (P0): the subject is the research process, not a market
 
 
 class Output(StrEnum):
@@ -193,6 +198,17 @@ class HypothesisCard(Strict):
     history: list[HistoryEntry] = Field(min_length=1)
 
     @model_validator(mode="after")
+    def _meta_research(self) -> Self:
+        meta = self.program is Program.P0
+        if meta != (self.return_source is ReturnSource.NONE) or meta != (
+            self.scope.output is Output.NONE
+        ):
+            raise ValueError(
+                "P0 (meta-research), and only P0, has return_source none and output none"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _history(self) -> Self:
         if self.history[0].status is not Status.DRAFT:
             raise ValueError("history must start with status draft")
@@ -243,7 +259,9 @@ class TrialRecord(Strict):
     hypothesis: HypothesisId
     segment: Segment
     manifest: dict[str, Any]
+    config: dict[str, Any]
     result_fingerprint: FingerprintText
+    output_fingerprint: FingerprintText
     metrics: dict[str, float]
     vault_approval: DecisionId | None = None
     prev: FingerprintText | None
@@ -255,9 +273,32 @@ class TrialRecord(Strict):
             raise ValueError("a run from a working tree with local changes cannot enter the ledger")
         if str(manifest.fingerprint) != self.result_fingerprint:
             raise ValueError("result_fingerprint does not match the manifest")
+        if digest_value(self.config) != manifest.config:
+            raise ValueError("config does not match the manifest's config fingerprint")
         if (self.segment is Segment.VAULT) != (self.vault_approval is not None):
             raise ValueError("vault trials, and only vault trials, cite the owner's approval")
         return self
+
+
+class RefusalKind(StrEnum):
+    LOOKAHEAD = "lookahead"  # a query past the clock limit
+    VAULT_SEALED = "vault_sealed"  # the vault without the owner's approval
+    NOT_REGISTERED = "not_registered"  # held-out data for an unregistered hypothesis
+
+
+class Refusal(Strict):
+    """A request the point-in-time door refused. It disclosed nothing; it is kept as a record."""
+
+    refusal_id: RefusalId
+    recorded_at: UtcDatetime
+    hypothesis: HypothesisId
+    segment: Segment
+    study: Text
+    kind: RefusalKind
+    detail: Text
+    commit: CommitId
+    dirty: bool
+    prev: FingerprintText | None
 
 
 class DecisionKind(StrEnum):

@@ -2,6 +2,12 @@
 
 Outside ``finresearch.data``, code may not read files of data directly, and may
 not call the unclocked internals that ``PointInTime`` wraps.
+
+Studies (``finresearch.studies``) are held to more: a study gets a door and its
+configuration, nothing else. It may not import the rest of the data layer (raw
+files, tables), the data sources (a synthetic source would hand it the truth),
+the run framework or the registry, and it may not touch files, processes or the
+network at all.
 """
 
 import ast
@@ -22,6 +28,24 @@ FORBIDDEN_MODULES = (
     "pandas",
     "polars",
 )
+STUDIES_PACKAGE = SRC / "studies"
+STUDY_FORBIDDEN = (
+    "finresearch.data",
+    "finresearch.sources",
+    "finresearch.runner",
+    "finresearch.registry",
+    "finresearch.cli",
+    "pathlib",
+    "os",
+    "io",
+    "shutil",
+    "subprocess",
+    "socket",
+    "urllib",
+    "http",
+    "pickle",
+)
+STUDY_ALLOWED = ("finresearch.data.pit",)
 FORBIDDEN_NAMES = {
     ("finresearch.data.table", "versions_as_of"),
     ("finresearch.data.table", "from_parquet"),
@@ -77,3 +101,56 @@ def test_the_checker_catches_bypasses() -> None:
 )
 def test_no_module_outside_data_bypasses_the_door(module: Path) -> None:
     assert violations(module.read_text(encoding="utf-8")) == []
+
+
+def _is(module: str, prefixes: tuple[str, ...]) -> bool:
+    return any(module == p or module.startswith(f"{p}.") for p in prefixes)
+
+
+def study_violations(source: str) -> list[str]:
+    found: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        modules: list[str] = []
+        if isinstance(node, ast.Import):
+            modules = [a.name for a in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules = [node.module, *(f"{node.module}.{a.name}" for a in node.names)]
+            if _is(node.module, STUDY_ALLOWED):
+                modules = []
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"open", "exec", "eval", "__import__"}
+        ):
+            found.append(f"{node.func.id}()")
+        found.extend(m for m in modules if _is(m, STUDY_FORBIDDEN) and not _is(m, STUDY_ALLOWED))
+    return sorted(set(found))
+
+
+def test_the_study_checker_catches_bypasses() -> None:
+    assert study_violations("from finresearch.data.pit import PointInTime") == []
+    assert study_violations("from finresearch.stats.correlation import pearson") == []
+    assert study_violations("from finresearch.data.table import versions_as_of") == [
+        "finresearch.data.table",
+        "finresearch.data.table.versions_as_of",
+    ]
+    assert study_violations("from finresearch.data import catalog") == [
+        "finresearch.data",
+        "finresearch.data.catalog",
+    ]
+    assert study_violations("from finresearch.sources.synthetic import fetch") == [
+        "finresearch.sources.synthetic",
+        "finresearch.sources.synthetic.fetch",
+    ]
+    assert study_violations("import pathlib") == ["pathlib"]
+    assert study_violations("data = open('x').read()") == ["open()"]
+    assert study_violations("import osmosis") == []
+
+
+@pytest.mark.parametrize(
+    "module",
+    sorted(STUDIES_PACKAGE.rglob("*.py")),
+    ids=lambda p: p.relative_to(SRC).as_posix(),
+)
+def test_studies_see_only_the_door(module: Path) -> None:
+    assert study_violations(module.read_text(encoding="utf-8")) == []

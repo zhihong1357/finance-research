@@ -15,9 +15,11 @@ from pydantic import BaseModel, ValidationError
 from finresearch.core.provenance import RunManifest
 from finresearch.registry.ledger import ChainError, read_chain
 from finresearch.registry.models import (
+    TRIAL_ID,
     DecisionKind,
     HypothesisCard,
     OwnerDecision,
+    Refusal,
     Relation,
     Segment,
     Source,
@@ -25,13 +27,16 @@ from finresearch.registry.models import (
     TrialRecord,
     plan_fingerprint,
 )
+from finresearch.report.standard import ReportError, body_fingerprint, parse
 
 HYPOTHESES = Path("registry/hypotheses")
 RELATIONS = Path("registry/relations")
 SOURCES = Path("registry/sources")
 TRIALS = Path("registry/trials.jsonl")
 OWNER_DECISIONS = Path("registry/owner_decisions.jsonl")
-APPEND_ONLY = (TRIALS, OWNER_DECISIONS)
+REFUSALS = Path("registry/refusals.jsonl")
+REPORTS = Path("reports")
+APPEND_ONLY = (TRIALS, OWNER_DECISIONS, REFUSALS)
 
 
 @dataclass
@@ -48,6 +53,7 @@ class Registry:
     sources: dict[str, Source] = field(default_factory=lambda: dict[str, Source]())
     trials: list[TrialRecord] = field(default_factory=lambda: list[TrialRecord]())
     decisions: list[OwnerDecision] = field(default_factory=lambda: list[OwnerDecision]())
+    refusals: list[Refusal] = field(default_factory=lambda: list[Refusal]())
 
 
 def _errors(where: Path, exc: ValidationError) -> list[str]:
@@ -105,6 +111,7 @@ def load(root: Path) -> tuple[Registry, list[str]]:
     reg.sources = {s.id: s for s, _, _ in _load_toml_dir(root, SOURCES, Source, problems)}
     reg.trials = _load_chain(root, TRIALS, TrialRecord, problems)
     reg.decisions = _load_chain(root, OWNER_DECISIONS, OwnerDecision, problems)
+    reg.refusals = _load_chain(root, REFUSALS, Refusal, problems)
     return reg, problems
 
 
@@ -200,6 +207,53 @@ def _check_trials(reg: Registry) -> list[str]:
     return problems
 
 
+def _check_reports(root: Path, reg: Registry) -> list[str]:
+    """Every trial has its standard report, every report has its trial, and they agree."""
+    problems: list[str] = []
+    trials = {t.trial_id: t for t in reg.trials}
+    files = {p.stem: p for p in sorted((root / REPORTS).glob("*.md")) if TRIAL_ID.fullmatch(p.stem)}
+    problems.extend(
+        f"{REPORTS}/{tid}.md: no trial {tid} in the ledger" for tid in files if tid not in trials
+    )
+    for tid, t in trials.items():
+        rel = REPORTS / f"{tid}.md"
+        if tid not in files:
+            problems.append(f"{rel}: missing (every trial has a standard report)")
+            continue
+        try:
+            header, body = parse(files[tid].read_text(encoding="utf-8"))
+        except ReportError as exc:
+            problems.append(f"{rel}: {exc}")
+            continue
+        expected = (
+            t.trial_id,
+            t.hypothesis,
+            str(t.segment),
+            t.result_fingerprint,
+            t.output_fingerprint,
+        )
+        found = (
+            header.trial_id,
+            header.hypothesis,
+            header.segment,
+            header.result_fingerprint,
+            header.output_fingerprint,
+        )
+        if found != expected:
+            problems.append(f"{rel}: header does not match the ledger entry")
+        if str(body_fingerprint(body)) != t.output_fingerprint:
+            problems.append(f"{rel}: body does not match the output fingerprint (was it edited?)")
+    return problems
+
+
+def _check_refusals(reg: Registry) -> list[str]:
+    return [
+        f"{REFUSALS}:{n}: unknown hypothesis {r.hypothesis}"
+        for n, r in enumerate(reg.refusals, start=1)
+        if r.hypothesis not in reg.hypotheses
+    ]
+
+
 def check(root: Path) -> list[str]:
     reg, problems = load(root)
     problems += _check_sequence(
@@ -212,6 +266,15 @@ def check(root: Path) -> list[str]:
         "D",
         4,
     )
+    problems += _check_sequence(
+        REFUSALS,
+        [r.refusal_id for r in reg.refusals],
+        [r.recorded_at for r in reg.refusals],
+        "Q",
+        6,
+    )
     problems += _check_cards(reg)
     problems += _check_trials(reg)
+    problems += _check_refusals(reg)
+    problems += _check_reports(root, reg)
     return problems

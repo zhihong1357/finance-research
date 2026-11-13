@@ -12,7 +12,7 @@ system, so daylight-saving rules are identical on every machine.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import cache
 from importlib.resources import files
 from zoneinfo import ZoneInfo
@@ -21,6 +21,7 @@ EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _MICROS_PER_SECOND = 1_000_000
 _MICROS_PER_MILLI = 1_000
 _SECONDS_PER_DAY = 86_400
+_MONTHS_PER_YEAR = 12
 
 
 class NaiveDatetimeError(ValueError):
@@ -83,6 +84,12 @@ def floor_time(t: datetime, step: timedelta) -> datetime:
         raise ValueError(f"step must be positive, got {step}")
     us = to_epoch_us(t)
     return from_epoch_us(us - us % step_us)
+
+
+def month_start(d: date, offset: int = 0) -> date:
+    """The first day of the month ``offset`` months after the month containing ``d``."""
+    total = d.year * _MONTHS_PER_YEAR + (d.month - 1) + offset
+    return date(total // _MONTHS_PER_YEAR, total % _MONTHS_PER_YEAR + 1, 1)
 
 
 def _micros(d: timedelta) -> int:

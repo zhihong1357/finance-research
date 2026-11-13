@@ -7,9 +7,15 @@ from pydantic import ValidationError
 
 from finresearch.core.fingerprint import canonical_json, digest_bytes
 from finresearch.core.time import utc
-from finresearch.registry.ledger import ChainError, append_owner_decision, append_trial, read_chain
-from finresearch.registry.models import DecisionKind, Segment
-from tests.registry.conftest import manifest
+from finresearch.registry.ledger import (
+    ChainError,
+    append_owner_decision,
+    append_refusal,
+    append_trial,
+    read_chain,
+)
+from finresearch.registry.models import DecisionKind, Refusal, RefusalKind, Segment
+from tests.registry.conftest import CONFIG, OUTPUT, manifest
 
 
 def _two_trials(path: Path) -> None:
@@ -19,6 +25,8 @@ def _two_trials(path: Path) -> None:
             hypothesis="H-0001",
             segment=Segment.EXPLORATION,
             manifest=manifest(),
+            config=CONFIG,
+            output_fingerprint=OUTPUT,
             metrics={"t": t},
             recorded_at=utc(2026, 11, 13, 4, i),
         )
@@ -98,6 +106,8 @@ def test_a_dirty_run_is_refused_and_nothing_is_written(tmp_path: Path) -> None:
             hypothesis="H-0001",
             segment=Segment.EXPLORATION,
             manifest=manifest(dirty=True),
+            config=CONFIG,
+            output_fingerprint=OUTPUT,
             metrics={"t": 3.1},
             recorded_at=utc(2026, 11, 13, 5),
         )
@@ -118,3 +128,39 @@ def test_owner_decisions(tmp_path: Path) -> None:
     )
     assert (d1.decision_id, d2.decision_id) == ("D-0001", "D-0002")
     assert [r["decision_id"] for r in read_chain(log)] == ["D-0001", "D-0002"]
+
+
+def _refuse(path: Path, at: int, kind: RefusalKind = RefusalKind.LOOKAHEAD) -> Refusal:
+    return append_refusal(
+        path,
+        hypothesis="H-0001",
+        segment=Segment.EXPLORATION,
+        study="thin_slice",
+        kind=kind,
+        detail="asked about 2018-06-01, but this door may only see up to 2011-12-31",
+        commit="a" * 40,
+        dirty=True,
+        recorded_at=utc(2026, 11, 13, at),
+    )
+
+
+def test_refusals_are_chained_like_the_ledger(tmp_path: Path) -> None:
+    log = tmp_path / "refusals.jsonl"
+    first = _refuse(log, 1)
+    second = _refuse(log, 2, RefusalKind.VAULT_SEALED)
+    assert (first.refusal_id, second.refusal_id) == ("Q-000001", "Q-000002")
+    assert second.prev == str(digest_bytes(log.read_bytes().split(b"\n")[0]))
+    assert [r["kind"] for r in read_chain(log)] == ["lookahead", "vault_sealed"]
+    with pytest.raises(ValidationError, match="commit"):
+        append_refusal(
+            log,
+            hypothesis="H-0001",
+            segment=Segment.EXPLORATION,
+            study="thin_slice",
+            kind=RefusalKind.LOOKAHEAD,
+            detail="x",
+            commit="not-a-commit",
+            dirty=False,
+            recorded_at=utc(2026, 11, 13, 3),
+        )
+    assert len(read_chain(log)) == 2
