@@ -12,7 +12,9 @@
    SHA-256 where the archive has one, and what the file holds.
 
 A listing that fails for any symbol fails the whole run and stores nothing: a
-partial listing would look like files had been removed.
+partial listing would look like files had been removed. So does a listing with
+more names it cannot read than ``max_skipped``: a new naming scheme at the
+exchange must stop the run, not quietly leave files out of the manifest.
 """
 
 import hashlib
@@ -46,6 +48,8 @@ class ArchiveError(RuntimeError):
 
 
 class Lister(Protocol):
+    OFFICIAL_CHECKSUMS: bool  # whether every file should have an official checksum file
+
     def symbols(self, spec: Mapping[str, Any]) -> list[str]: ...
 
     def entries(
@@ -151,8 +155,8 @@ class RunResult:
     files: int
     bytes_listed: int
     counts: dict[str, int]  # change -> number of rows in the increment
-    skipped: list[str]
-    no_checksum: int
+    skipped: list[str]  # all of them; at most ``max_skipped``
+    no_checksum: int  # files without an official checksum, where the archive promises one
     pushed: PushReport
     checks: list[SampleCheck] = field(default_factory=lambda: list[SampleCheck]())
     examples: dict[str, list[str]] = field(default_factory=lambda: dict[str, list[str]]())
@@ -179,6 +183,12 @@ def run(
     before = replay(read_increment(history / p) for p in local_files(history, prefix))
 
     listing = list_dataset(dataset, spec, int(cfg["listing"]["workers"]))
+    limit = int(cfg["listing"]["max_skipped"])
+    if len(listing.skipped) > limit:
+        raise ArchiveError(
+            f"{dataset}: {len(listing.skipped)} names do not fit the dataset's naming "
+            f"(limit {limit}), e.g. {listing.skipped[:3]}; nothing was stored"
+        )
     rows = diff(before, listing.entries)
     out = work / "out"
     path = increment_path(dataset, ensure_utc(now))
@@ -186,7 +196,8 @@ def run(
     counts = {str(c): sum(r.change is c for r in rows) for c in Change}
     pushed = push(out, remote, prefix, limits, f"{dataset}: manifest increment {counts}")
 
-    shown = int(cfg["listing"]["max_skipped_shown"])
+    shown = int(cfg["listing"]["max_shown"])
+    lister = LISTERS[spec["exchange"]]
     result = RunResult(
         dataset=dataset,
         increment=path,
@@ -194,8 +205,10 @@ def run(
         files=len(listing.entries),
         bytes_listed=sum(e.size or 0 for e in listing.entries),
         counts=counts,
-        skipped=listing.skipped[:shown],
-        no_checksum=sum(e.checksum_url is None for e in listing.entries),
+        skipped=listing.skipped,
+        no_checksum=sum(e.checksum_url is None for e in listing.entries)
+        if lister.OFFICIAL_CHECKSUMS
+        else 0,
         pushed=pushed,
         examples=_examples(rows, shown),
     )
@@ -203,7 +216,6 @@ def run(
     added = [r.entry for r in rows if r.change is Change.ADDED]
     rng = random.Random(seed)  # noqa: S311 - a reproducible sample, not a secret
     sample = pick(listing.entries, added, n, float(cfg["verify"]["new_share"]), rng)
-    lister = LISTERS[spec["exchange"]]
     result.checks = [verify(e, lister) for e in sample]
     return result
 

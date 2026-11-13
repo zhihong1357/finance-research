@@ -8,7 +8,9 @@ SHA-256 are taken when a file is first downloaded (docs/architecture.md 7.3).
 The folder is not always the symbol in the file name: when Bybit reused a
 symbol, the old contract's files moved to a renamed folder (``ANTOLDUSDT``
 holds ``ANTUSDT2021-12-17.csv.gz``), and a few days were reissued as
-``..._v2.csv.gz``. A manifest entry's ``symbol`` is the folder, which keeps the
+``..._v2.csv.gz``. Symbols of dated contracts carry hyphens and underscores
+(``BTC-01DEC23``, ``WC_..._USDT-28JUN26``), so a symbol is whatever comes before
+the date. A manifest entry's ``symbol`` is the folder, which keeps the
 two contracts apart; the traded symbol is the one in the file name.
 """
 
@@ -24,8 +26,9 @@ from finresearch.data.manifest import ManifestEntry
 from finresearch.sources import http
 
 BASE = "https://public.bybit.com/"
+OFFICIAL_CHECKSUMS: bool = False  # only the ETag, which is the MD5 for single-part uploads
 _LINK = re.compile(r'<a href="([^"?#]+)">')
-_FILE = re.compile(r"(?P<symbol>[A-Z0-9]+?)(?P<day>\d{4}-\d{2}-\d{2})(?:_v\d+)?\.csv\.gz")
+_FILE = re.compile(r"(?P<symbol>[^/]+?)(?P<day>\d{4}-\d{2}-\d{2})(?:_v\d+)?\.csv\.gz")
 
 
 def _links(url: str) -> list[str]:

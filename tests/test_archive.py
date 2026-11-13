@@ -27,7 +27,7 @@ LIMITS = Limits(
     max_files_per_commit=50, max_entries_per_folder=9000, retries=0, retry_wait_seconds=0
 )
 CFG: dict[str, Any] = {
-    "listing": {"workers": 2, "max_skipped_shown": 5},
+    "listing": {"workers": 2, "max_shown": 5, "max_skipped": 1},
     "verify": {"max_sample": 4, "new_share": 0.5},
     "datasets": {
         "binance.um.metrics.daily": {
@@ -173,6 +173,25 @@ def test_a_file_replaced_under_the_same_name_is_caught(fake: FakeArchive, tmp_pa
     assert result.counts["changed"] == 1
     assert not result.ok
     assert any("SHA-256" in p for p in result.checks[0].problems)
+
+
+def test_names_that_do_not_fit_are_reported_up_to_a_limit(
+    fake: FakeArchive, tmp_path: Path
+) -> None:
+    remote = DirectoryRemote(tmp_path / "remote")
+    fake.put("AAAUSDT", "2026-11-10")
+    fake.put("AAAUSDT", "2026-11-11")
+    del fake.files[f"{ROOT}AAAUSDT/AAAUSDT-metrics-2026-11-11.zip.CHECKSUM"]
+    fake.files[f"{ROOT}AAAUSDT/AAAUSDT-metrics-1993.zip"] = b"?"
+    result = _run(remote, tmp_path, utc(2026, 11, 15))
+    assert result.skipped == [f"{ROOT}AAAUSDT/AAAUSDT-metrics-1993.zip"]
+    assert result.files == 2  # the stray is not an entry
+    assert result.no_checksum == 1
+
+    fake.files[f"{ROOT}AAAUSDT/AAAUSDT-metrics-2026-W46.zip"] = b"?"  # a new naming scheme
+    with pytest.raises(archive.ArchiveError, match="2 names do not fit"):
+        _run(remote, tmp_path, utc(2026, 11, 22))
+    assert len(remote.list("manifests")) == 1  # the second listing stored nothing
 
 
 def test_a_listing_failure_stores_nothing(server: FakeServer, tmp_path: Path) -> None:
