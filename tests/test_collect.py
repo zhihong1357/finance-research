@@ -67,7 +67,11 @@ def test_a_failed_fetch_writes_nothing(tmp_path: Path) -> None:
     cfg = {
         **CFG,
         "sources": {
-            "heartbeat.drill": {**CFG["sources"]["heartbeat.drill"], "simulate_failure": True}
+            "heartbeat.drill": {
+                **CFG["sources"]["heartbeat.drill"],
+                "enabled": True,
+                "simulate_failure": True,
+            }
         },
     }
     with pytest.raises(SourceError):
