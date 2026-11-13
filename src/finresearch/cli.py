@@ -174,6 +174,12 @@ def _archive(args: argparse.Namespace) -> int:
     )
     if result.described:
         print(f"asked the server about {result.described} file(s) the listing did not describe")
+    if result.undescribed:
+        _warn(
+            f"{result.dataset}: {result.undescribed} file(s) not described yet; the next run asks"
+        )
+    if result.describe_error:
+        _warn(f"{result.dataset}: asking stopped early: {result.describe_error}")
     if result.no_checksum:
         _warn(f"{result.dataset}: {result.no_checksum} file(s) without an official checksum file")
     if result.skipped:

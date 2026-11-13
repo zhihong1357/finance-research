@@ -27,7 +27,13 @@ LIMITS = Limits(
     max_files_per_commit=50, max_entries_per_folder=9000, retries=0, retry_wait_seconds=0
 )
 CFG: dict[str, Any] = {
-    "listing": {"workers": 2, "describe_workers": 2, "max_shown": 5, "max_skipped": 1},
+    "listing": {
+        "workers": 2,
+        "describe_workers": 2,
+        "describe_max": 100,
+        "max_shown": 5,
+        "max_skipped": 1,
+    },
     "verify": {"max_sample": 4, "new_share": 0.5},
     "datasets": {
         "binance.um.metrics.daily": {
@@ -283,11 +289,14 @@ class _Asking:
 
     OFFICIAL_CHECKSUMS = False
 
-    def __init__(self) -> None:
+    def __init__(self, refuse_from: int | None = None) -> None:
         self.asked: list[str] = []
+        self.refuse_from = refuse_from
 
     def describe(self, entry: ManifestEntry) -> ManifestEntry:
         self.asked.append(entry.url)
+        if self.refuse_from is not None and entry.url >= _entry(self.refuse_from).url:
+            raise SourceError(f"HEAD {entry.url}: HTTP 403")
         return ManifestEntry(
             entry.dataset, entry.symbol, entry.period, entry.url, 7, "e", utc(2026, 11, 2)
         )
@@ -301,9 +310,27 @@ def test_only_files_never_described_are_asked_about() -> None:
         )
     }
     lister = _Asking()
-    entries, asked = archive.describe_all(named, before, lister, workers=2)  # pyright: ignore[reportArgumentType]
-    assert asked == 2
+    d = archive.describe_all(named, before, lister, workers=2, limit=100)  # pyright: ignore[reportArgumentType]
+    assert (d.asked, d.left, d.error) == (2, 0, None)
     assert sorted(lister.asked) == [named[1].url, named[2].url]
-    assert [(e.size, e.etag) for e in entries] == [(5, "old"), (7, "e"), (7, "e")]
+    assert [(e.size, e.etag) for e in d.entries] == [(5, "old"), (7, "e"), (7, "e")]
     described = ManifestEntry("d", "S", "2026-11-10", "https://x.invalid/b.zip", 9, "x")
-    assert archive.describe_all([described], {}, lister, workers=2) == ([described], 0)  # pyright: ignore[reportArgumentType]
+    again = archive.describe_all([described], {}, lister, workers=2, limit=100)  # pyright: ignore[reportArgumentType]
+    assert (again.entries, again.asked) == ([described], 0)
+
+
+def test_at_most_the_limit_is_asked_about_and_the_rest_waits() -> None:
+    named = [_entry(n) for n in range(5)]
+    d = archive.describe_all(named, {}, _Asking(), workers=2, limit=3)  # pyright: ignore[reportArgumentType]
+    assert (d.asked, d.left, d.error) == (3, 2, None)
+    assert [e.size for e in d.entries] == [7, 7, 7, None, None]  # in URL order, the first three
+
+
+def test_a_refusal_stops_the_asking_and_keeps_what_was_learned() -> None:
+    named = [_entry(n) for n in range(80)]  # chunks of 2 workers * 16 = 32
+    lister = _Asking(refuse_from=35)
+    d = archive.describe_all(named, {}, lister, workers=2, limit=100)  # pyright: ignore[reportArgumentType]
+    assert d.error is not None
+    assert d.error.endswith("HTTP 403")
+    assert (d.asked, d.left, len(d.entries)) == (35, 45, 80)
+    assert len(lister.asked) == 64  # the refusal came in the second chunk; no third was sent
