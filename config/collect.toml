@@ -43,4 +43,8 @@ enabled = true
 [monitor]
 issue_marker = "finresearch:outage"   # 监控开的问题里带这个标记，用来认出自己开过的问题
 inactivity_warn_days = 45             # 公开仓库 60 天无活动会停用定时任务；45 天时提醒所有者
-scheduled_workflows = [".github/workflows/collect.yml", ".github/workflows/monitor.yml"]
+scheduled_workflows = [
+  ".github/workflows/collect.yml",
+  ".github/workflows/monitor.yml",
+  ".github/workflows/archive.yml",
+]

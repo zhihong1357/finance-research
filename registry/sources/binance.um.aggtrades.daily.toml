@@ -1,0 +1,16 @@
+id = "binance.um.aggtrades.daily"
+name = "Binance U 本位合约归并成交（公开数据站，逐日文件）"
+url = "https://data.binance.vision/?prefix=data/futures/um/daily/aggTrades/"
+access = "archive"
+redownloadable = true
+official_checksums = true
+event_time = "成交时刻（交易所毫秒时间戳，UTC）"
+available_at = "成交时刻加行情延迟；加工成 1 分钟数据后取该分钟的结束时刻"
+rate_limit = "列目录走存储桶索引，每页 1,000 个文件；每周一次，16 个线程并行"
+terms_url = "https://data.binance.vision/Binance_Vision-Terms_of_Use.pdf"
+terms_checked = true
+known_issues = [
+  "条款：CC BY-NC-SA 4.0，只限学术研究和个人非生产用途的历史回测；由它得出的模型也不能用于实盘（架构 7.5）。原始文件不进公开仓库",
+  "逐日文件约晚 1 到 2 天出现在归档里；归档出现的时刻不是可用时刻：这些行情当时是实时公开的",
+  "同一时刻、同一价格、同一主动方的成交归并成一条，并记首尾成交编号，所以成交笔数、主动买卖量、成交均价都能按分钟精确算出",
+]

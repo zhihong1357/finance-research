@@ -21,9 +21,14 @@ class FakeServer:
         return self.handler(request)
 
 
-@pytest.fixture
-def server(monkeypatch: pytest.MonkeyPatch) -> FakeServer:
+def install(monkeypatch: pytest.MonkeyPatch) -> FakeServer:
+    """Route every request of ``finresearch.sources.http`` to a new fake server."""
     fake = FakeServer()
     monkeypatch.setattr(http, "TRANSPORT", httpx2.MockTransport(fake))
     monkeypatch.setattr(http.time, "sleep", lambda _s: None)
     return fake
+
+
+@pytest.fixture
+def server(monkeypatch: pytest.MonkeyPatch) -> FakeServer:
+    return install(monkeypatch)

@@ -6,17 +6,19 @@
 ``finresearch storage selftest``  write to the remote store, read back, compare, time it
 ``finresearch collect plan | run``  scheduled collection, one job per source
 ``finresearch monitor``  data freshness, outage issues, keeping schedules alive
+``finresearch archive plan | run``  archive manifests: list, keep what changed, spot-check
 """
 
 import argparse
 import json
+import os
 import sys
 import tempfile
 import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
-from finresearch import collect, monitor
+from finresearch import archive, collect, monitor
 from finresearch.core.config import load_toml
 from finresearch.core.time import format_utc, parse_utc
 from finresearch.data.hub import HubRemote
@@ -93,6 +95,14 @@ def _parser() -> argparse.ArgumentParser:
     cr = co.add_parser("run", help="fetch one source, keep the raw bytes, push them")
     cr.add_argument("--source", required=True)
     sub.add_parser("monitor", help="check freshness, sync outage issues, keep schedules alive")
+
+    ar = sub.add_parser("archive", help="archive manifests").add_subparsers(
+        dest="cmd", required=True
+    )
+    ar.add_parser("plan", help="print the enabled datasets as JSON")
+    arr = ar.add_parser("run", help="list a dataset, push the increment, spot-check files")
+    arr.add_argument("--dataset", required=True)
+    arr.add_argument("--seed", type=int, help="seed of the spot-check sample (default: today)")
     return ap
 
 
@@ -121,10 +131,59 @@ def _collect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _warn(text: str) -> None:
+    """A warning; inside GitHub Actions also an annotation on the run page."""
+    on_actions = os.environ.get("GITHUB_ACTIONS") == "true"
+    print(f"::warning::{text}" if on_actions else f"warning: {text}")
+
+
+def _archive(args: argparse.Namespace) -> int:
+    cfg = archive.archive_config()
+    if args.cmd == "plan":
+        print(json.dumps(archive.plan(cfg)))
+        return 0
+    now = datetime.now(UTC)
+    seed: int = args.seed if args.seed is not None else int(f"{now:%Y%m%d}")
+    hub = load_toml("storage")["hub"]
+    try:
+        with tempfile.TemporaryDirectory(prefix="finresearch-archive-") as tmp:
+            result = archive.run(
+                args.dataset,
+                cfg,
+                HubRemote.from_environment(hub),
+                Limits.from_config(hub),
+                Path(tmp),
+                now,
+                seed,
+            )
+    except (SourceError, StoreError) as exc:
+        print(f"failed: {exc}")
+        return 1
+    gb = result.bytes_listed / 1e9
+    print(f"{result.dataset}: {result.symbols} symbol folders, {result.files} files, {gb:.2f} GB")
+    print(
+        f"increment {result.increment}: {result.counts}; pushed {len(result.pushed.added)} file(s)"
+    )
+    if result.no_checksum:
+        _warn(f"{result.dataset}: {result.no_checksum} file(s) without an official checksum file")
+    for name in result.skipped:
+        _warn(f"{result.dataset}: not a data file of this dataset: {name}")
+    for change, urls in result.examples.items():
+        _warn(f"{result.dataset}: {result.counts[change]} file(s) {change}, e.g. {urls[0]}")
+        for url in urls:
+            print(f"  {change}: {url}")
+    print(f"spot check (seed {seed}): {sum(c.ok for c in result.checks)}/{len(result.checks)} ok")
+    for c in result.checks:
+        verdict = "ok" if c.ok else "PROBLEM: " + "; ".join(c.problems)
+        print(f"  {c.url} {c.size} B sha256={c.sha256[:16]} etag={c.etag}: {verdict}")
+    return 0 if result.ok else 1
+
+
 def _monitor() -> int:
     try:
         lines = monitor.run(
             collect.collect_config(),
+            archive.archive_config(),
             HubRemote.from_environment(load_toml("storage")["hub"]),
             GitHub.from_environment(),
             datetime.now(UTC),
@@ -223,7 +282,9 @@ def main(argv: list[str] | None = None) -> int:
             return _collect(args)
         if args.area == "monitor":
             return _monitor()
-    except (RunError, collect.CollectError) as exc:
+        if args.area == "archive":
+            return _archive(args)
+    except (RunError, collect.CollectError, archive.ArchiveError) as exc:
         print(f"error: {exc}")
         return 1
     if args.cmd == "check":

@@ -1,0 +1,17 @@
+id = "bybit.trades.daily"
+name = "Bybit 合约逐笔成交（公开归档，逐日文件）"
+url = "https://public.bybit.com/trading/"
+access = "archive"
+redownloadable = true
+official_checksums = false
+event_time = "成交时刻（秒，带小数，UTC）"
+available_at = "成交时刻加行情延迟；加工成 1 分钟数据后取该分钟的结束时刻"
+rate_limit = "列目录是普通网页，每个品种一页；每周一次，16 个线程并行"
+terms_checked = false
+known_issues = [
+  "没有校验和文件，保证比 Binance 弱。列目录只给文件名；首次下载时自算 SHA-256 并记下 ETag。实测 ETag 是文件的 MD5（单次上传的文件；分段上传的 ETag 带短横，不是 MD5）",
+  "目录名不总是文件名里的品种：品种名被重新使用时，旧合约的文件移到改名的目录（ANTOLDUSDT 里是 ANTUSDT 的文件）；个别日期有重发的 _v2 文件",
+  "后来的文件多了一列 RPI；列的变化在加工时处理",
+  "只有逐笔成交；资金费率、持仓量、标记价格不在归档里",
+  "没有找到公开归档的专门条款；接口条款禁止商业利用接口（架构 7.5）",
+]
