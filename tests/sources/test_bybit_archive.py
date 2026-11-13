@@ -6,6 +6,7 @@ import gzip
 import httpx2
 import pytest
 
+from finresearch.core.time import utc
 from finresearch.data.manifest import ManifestEntry
 from finresearch.sources import bybit_archive as b
 from tests.sources.conftest import FakeServer
@@ -108,3 +109,23 @@ def test_a_day_of_trades_passes() -> None:
 def test_bad_day_files_are_reported(content: bytes, problem: str) -> None:
     (found,) = b.check(ENTRY, content)
     assert found.startswith(problem)
+
+
+def test_describe_asks_the_server_for_size_etag_and_publication(server: FakeServer) -> None:
+    server.handler = lambda _r: httpx2.Response(
+        200,
+        headers={
+            "Content-Length": "1240124",
+            "ETag": '"1e756dc7ee73cff4a287673f33912fa6"',
+            "Last-Modified": "Fri, 13 Nov 2026 01:08:08 GMT",
+        },
+    )
+    described = b.describe(ENTRY)
+    assert server.requests[0].method == "HEAD"
+    assert (described.size, described.etag) == (1240124, "1e756dc7ee73cff4a287673f33912fa6")
+    assert described.last_modified == utc(2026, 11, 13, 1, 8, 8)
+    assert (described.url, described.symbol, described.period) == (
+        ENTRY.url,
+        ENTRY.symbol,
+        ENTRY.period,
+    )

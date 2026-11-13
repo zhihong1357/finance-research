@@ -172,6 +172,8 @@ def _archive(args: argparse.Namespace) -> int:
     print(
         f"increment {result.increment}: {result.counts}; pushed {len(result.pushed.added)} file(s)"
     )
+    if result.described:
+        print(f"asked the server about {result.described} file(s) the listing did not describe")
     if result.no_checksum:
         _warn(f"{result.dataset}: {result.no_checksum} file(s) without an official checksum file")
     if result.skipped:

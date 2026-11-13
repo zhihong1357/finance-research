@@ -122,6 +122,11 @@ def entries(
     return found, skipped
 
 
+def describe(entry: ManifestEntry) -> ManifestEntry:
+    """The bucket index already gives size, ETag and modification time."""
+    return entry
+
+
 def check(entry: ManifestEntry, content: bytes) -> list[str]:
     """Problems with a downloaded zip: its official SHA-256, its name, its CRCs."""
     problems: list[str] = []
