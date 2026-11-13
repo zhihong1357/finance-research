@@ -23,3 +23,11 @@ daily = "bybit.trades.daily"    # Bybit 的归档只有逐日的逐笔成交，�
 settle_days = 7
 workers = 8                     # 一个交易日的 BTCUSDT 解压后约 300 MB，并行数比 Binance 少
 batch = 32
+
+[crosscheck]
+# 抽样核对（2.5.5，决策 0010）：随机抽一些合约日，用逐笔成交重算 1 分钟数据，与 Binance 的 K 线逐分钟比对。
+# 结果是由数据得出的质量报告，只存私有数据集（决策 0008）；公开日志只写是否通过
+trades = "binance.um.trades.daily"
+klines = "binance.um.klines_1m.daily"
+sample = 20                     # 每次抽几个合约日
+max_differing_share = 0.0       # 允许不一致的分钟所占比例：K 线应当就是逐笔成交的精确汇总，所以是 0

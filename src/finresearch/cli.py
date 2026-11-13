@@ -111,6 +111,8 @@ def _parser() -> argparse.ArgumentParser:
     ub = uu.add_parser("build", help="build one month and push it")
     ub.add_argument("--exchange", required=True, choices=list(u1.EXCHANGES))
     ub.add_argument("--month", required=True, help="YYYY-MM")
+    uc = uu.add_parser("crosscheck", help="rebuild sampled days from trades; compare with klines")
+    uc.add_argument("--seed", type=int, help="seed of the sample (default: today)")
     return ap
 
 
@@ -174,7 +176,7 @@ def _archive(args: argparse.Namespace) -> int:
     )
     if result.described:
         print(f"asked the server about {result.described} file(s) the listing did not describe")
-    if result.undescribed:
+    if result.undescribed and int(cfg["listing"]["describe_max"]) > 0:
         _warn(
             f"{result.dataset}: {result.undescribed} file(s) not described yet; the next run asks"
         )
@@ -207,6 +209,16 @@ def _u1(args: argparse.Namespace) -> int:
     try:
         remote, limits = HubRemote.from_environment(hub), Limits.from_config(hub)
         with tempfile.TemporaryDirectory(prefix="finresearch-u1-") as tmp:
+            if args.cmd == "crosscheck":
+                now = datetime.now(UTC)
+                seed: int = args.seed if args.seed is not None else int(f"{now:%Y%m%d}")
+                cc = u1.crosscheck(cfg, remote, limits, Path(tmp), now, seed)
+                # Only the verdict here: the numbers are a quality report (decision 0008).
+                verdict = "yes" if cc.passed else "NO"
+                print(f"cross-check (seed {seed}): {cc.days} contract-days, {cc.minutes} minutes")
+                print(f"klines agree with trades within the threshold: {verdict}")
+                print(f"report in the private dataset: {cc.report}")
+                return 0 if cc.passed else 1
             if args.cmd == "plan":
                 jobs: list[dict[str, str]] = []
                 for exchange in [args.exchange] if args.exchange else u1.EXCHANGES:

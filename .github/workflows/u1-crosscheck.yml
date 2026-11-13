@@ -1,0 +1,38 @@
+# U1 抽样核对（Phase 2.5.5，决策 0010）：每周随机抽一些 Binance 合约日，用逐笔成交重算
+# 1 分钟数据，与官方 K 线逐分钟比对。报告存私有数据集；不一致超过阈值时任务失败（会发邮件）。
+name: U1 抽样核对
+
+on:
+  schedule:
+    - cron: "29 5 * * 3"     # 每周三 05:29 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: u1-crosscheck
+  cancel-in-progress: false
+
+jobs:
+  crosscheck:
+    name: K 线与逐笔成交
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - name: 核对
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET: ${{ vars.HF_DATASET }}
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+        run: uv run finresearch u1 crosscheck

@@ -21,6 +21,8 @@ with daily files but no monthly file (the archive's first days, a contract
 delisted early in a month) is built from the daily files.
 """
 
+import json
+import random
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -43,7 +45,13 @@ from finresearch.data.manifest import (
 from finresearch.data.partitioned import PartitionCard, PartitionWriter, month_dir
 from finresearch.data.store import Limits, PushReport, Remote, local_files, pull, push
 from finresearch.data.table import PitTable
-from finresearch.sources import binance_archive, binance_klines, bybit_archive, bybit_trades
+from finresearch.sources import (
+    binance_archive,
+    binance_klines,
+    binance_trades,
+    bybit_archive,
+    bybit_trades,
+)
 
 
 class U1Error(RuntimeError):
@@ -253,3 +261,81 @@ def build(
     )
     pushed = push(out, remote, folder, limits, f"u1.bars_1m {month:%Y-%m} {ex['part']}")
     return BuildResult(month, card, from_daily, pushed)
+
+
+@dataclass
+class CrossCheck:
+    """A cross-check of klines against trades. The numbers are a quality report
+    derived from the data (decision 0008): they go to the private dataset only."""
+
+    report: str  # where the report was stored
+    days: int
+    minutes: int
+    passed: bool
+    pushed: PushReport
+
+
+def crosscheck(
+    cfg: Mapping[str, Any],
+    remote: Remote,
+    limits: Limits,
+    work: Path,
+    now: datetime,
+    seed: int,
+) -> CrossCheck:
+    """Rebuild a random sample of Binance contract-days from trades and compare with the klines.
+
+    Decision 0010 takes Binance's 1-minute data from its klines; this is the
+    check that keeps that choice honest. A minute disagrees when either table
+    has it and the other does not, or any field differs exactly. The share of
+    disagreeing minutes must stay within ``max_differing_share``.
+    """
+    cc = cfg["crosscheck"]
+    universe = re.compile(str(cfg["binance"]["universe"]))
+    trades = load_manifest(str(cc["trades"]), remote, limits, work / "manifests").entries
+    klines = load_manifest(str(cc["klines"]), remote, limits, work / "manifests").entries
+    kline_by = {(e.symbol, e.period): e for e in klines if universe.fullmatch(e.symbol)}
+    pairs = sorted(
+        ((kline_by[(e.symbol, e.period)], e) for e in trades if (e.symbol, e.period) in kline_by),
+        key=lambda p: p[1].url,
+    )
+    rng = random.Random(seed)  # noqa: S311 - a reproducible sample, not a secret
+    sample = rng.sample(pairs, min(int(cc["sample"]), len(pairs)))
+
+    def one(pair: tuple[ManifestEntry, ManifestEntry]) -> dict[str, Any]:
+        kline, trade = pair
+        reference, _ = _file_bars("binance", kline)
+        content, check = archive.download(trade, binance_archive)
+        if not check.ok:
+            raise U1Error(f"{trade.url}: {'; '.join(check.problems)}")
+        published = trade.last_modified or check.last_modified or ensure_utc(now)
+        rebuilt = binance_trades.parse_trades(content, trade, published)
+        return {"symbol": trade.symbol, "day": trade.period, **bars.compare(reference, rebuilt)}
+
+    with ThreadPoolExecutor(max_workers=int(cfg["binance"]["workers"])) as pool:
+        rows = list(pool.map(one, sample))
+    totals = (
+        {k: sum(int(r[k]) for r in rows) for k in rows[0] if k not in ("symbol", "day")}
+        if rows
+        else {}
+    )
+    disagreeing = totals.get("differing", 0) + totals.get("missing", 0) + totals.get("extra", 0)
+    minutes = totals.get("minutes", 0)
+    share = disagreeing / minutes if minutes else 0.0
+    passed = share <= float(cc["max_differing_share"])
+    stamp = f"{ensure_utc(now):%Y%m%dT%H%M%SZ}"
+    path = f"quality/u1-crosscheck/{stamp}.json"
+    out = work / "out"
+    (out / path).parent.mkdir(parents=True, exist_ok=True)
+    report = {
+        "checked_at": stamp,
+        "seed": seed,
+        "threshold": float(cc["max_differing_share"]),
+        "share_differing": share,
+        "passed": passed,
+        "totals": totals,
+        "days": rows,
+    }
+    (out / path).write_text(json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    pushed = push(out, remote, "quality/u1-crosscheck", limits, f"u1 cross-check {stamp}")
+    return CrossCheck(path, len(rows), minutes, passed, pushed)
