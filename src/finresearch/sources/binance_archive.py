@@ -129,7 +129,7 @@ def check(entry: ManifestEntry, content: bytes) -> list[str]:
     if entry.checksum_url is None:
         problems.append("the archive has no official checksum file for it")
     else:
-        fields = http.request("GET", entry.checksum_url).decode("ascii", errors="replace").split()
+        fields = http.request("GET", entry.checksum_url).decode("utf-8", errors="replace").split()
         if len(fields) != 2 or fields[1] != name:  # noqa: PLR2004 - "<sha256>  <file name>"
             problems.append(f"the checksum file does not name {name}: {' '.join(fields)[:120]!r}")
         elif fields[0].lower() != hashlib.sha256(content).hexdigest():

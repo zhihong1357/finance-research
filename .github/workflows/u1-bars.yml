@@ -1,0 +1,83 @@
+# U1 的 1 分钟数据（Phase 2.5.3，决策 0010）：按归档清单下载 Binance 的 1 分钟 K 线，
+# 核对官方校验和，加工成按月分区的时点表，推到数据集。每个月一个任务，一个失败不影响其他。
+# 已经加工过的月份不再加工（远程存储只追加）。每月 15 日运行一次，补上刚结束的那个月。
+name: U1 1 分钟数据
+
+on:
+  schedule:
+    - cron: "47 4 15 * *"    # 每月 15 日 04:47 UTC：月度文件已出现，周一的归档清单已经列到
+  workflow_dispatch:
+    inputs:
+      months:
+        description: 只加工这些月份（如 2026-09,2026-10；留空按计划加工全部未完成的月份）
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: u1-bars
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: 列出要加工的月份
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      months: ${{ steps.plan.outputs.months }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - id: plan
+        name: 列出
+        env:
+          MONTHS: ${{ inputs.months }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET: ${{ vars.HF_DATASET }}
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+        run: |
+          if [ -n "$MONTHS" ]; then
+            echo "months=$(jq -cn --arg m "$MONTHS" '$m | split(",") | map(gsub(" "; ""))')" >> "$GITHUB_OUTPUT"
+          else
+            echo "months=$(uv run finresearch u1 plan --exchange binance)" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.months != '[]'
+    name: binance ${{ matrix.month }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 4          # 对归档服务器和数据集都客气一点
+      matrix:
+        month: ${{ fromJSON(needs.plan.outputs.months) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - name: 下载、核对、加工、推送
+        env:
+          MONTH: ${{ matrix.month }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET: ${{ vars.HF_DATASET }}
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+        run: uv run finresearch u1 build --exchange binance --month "$MONTH"

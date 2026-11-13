@@ -24,7 +24,7 @@ well formed but impossible, such as a low above the high: what to do about
 them is the processing job's decision, not the table's.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -94,6 +94,11 @@ def bars(
         columns[scale_column(name)] = pa.array([values[name].scale] * n, type=SCALE_TYPE)
     columns[TRADES] = trades.cast(pa.int64())
     return PitTable(NAME, KEYS, pa.table(columns))
+
+
+def concat(tables: Sequence[PitTable]) -> PitTable:
+    """Bar tables of one contract (for example one per day) as one table."""
+    return PitTable(NAME, KEYS, pa.concat_tables([t.table for t in tables]))
 
 
 def _common(table: pa.Table, names: tuple[str, ...]) -> list[Values]:

@@ -10,8 +10,10 @@ the bars, the exchange)::
     canonical/<table>/v<format>/<YYYY-MM>/<part>.json   the partition's card
 
 The card records the table's keys, the row count, the content fingerprint, the
-file's SHA-256, whether every observation has a single version, and the input
-files the partition was built from. Partitions are written once (the remote
+file's SHA-256, whether every observation has a single version, the input
+files the partition was built from, and notes (such as impossible bars that
+were kept). ``PartitionWriter`` builds a partition a piece at a time, so a
+month of every symbol never has to be in memory at once. Partitions are written once (the remote
 store is append-only); ``format`` goes up when the table's layout changes, so a
 new layout never overwrites an old one.
 
@@ -21,14 +23,18 @@ missing partitions from the remote store first. Row-group statistics let a
 query for a few symbols skip most of a file.
 """
 
+import hashlib
+import io
 import json
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.ipc as ipc
 import pyarrow.parquet as pq
 
 from finresearch.core.fingerprint import Fingerprint, digest_file
@@ -37,6 +43,7 @@ from finresearch.data.store import Limits, Remote, pull
 from finresearch.data.table import (
     AVAILABLE_AT,
     EVENT_TIME,
+    INGESTED_AT,
     TIME_COLUMNS,
     TIME_TYPE,
     PitTable,
@@ -63,6 +70,7 @@ class PartitionCard:
     sha256: str  # of the Parquet file
     single_version: bool
     inputs: dict[str, str] = field(default_factory=lambda: dict[str, str]())
+    notes: list[str] = field(default_factory=lambda: list[str]())  # e.g. impossible bars kept
 
     @property
     def name(self) -> str:
@@ -87,6 +95,159 @@ def _month_bounds(month: date) -> tuple[datetime, datetime]:
     return start, datetime(nxt.year, nxt.month, 1, tzinfo=UTC)
 
 
+class _HashSink(io.RawIOBase):
+    """A write-only file that only feeds a SHA-256 (so a large stream is never held in memory)."""
+
+    def __init__(self, prefix: bytes) -> None:
+        super().__init__()
+        self.hash = hashlib.sha256(prefix)
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, data: Any) -> int:  # noqa: ANN401 - any bytes-like object, as in RawIOBase
+        view = memoryview(data)
+        self.hash.update(view)
+        return view.nbytes
+
+
+class PartitionWriter:
+    """Writes one partition from tables added in key order, holding one row group at a time.
+
+    A month of U1 bars is tens of millions of rows; built in one piece it would
+    not fit in a runner's memory. Tables are added one after another (for the
+    bars, one symbol at a time, symbols in order) and every ``row_group_rows``
+    rows go to the Parquet file and to the fingerprint.
+
+    The partition's fingerprint covers the table name, its keys and the rows in
+    canonical order (columns by name; rows by keys and times) cut into batches
+    of ``row_group_rows``. It depends only on the content: the same rows give
+    the same fingerprint however they were added.
+    """
+
+    def __init__(
+        self,
+        local: Path,
+        name: str,
+        keys: Sequence[str],
+        fmt: int,
+        month: date,
+        part: str,
+        row_group_rows: int,
+    ) -> None:
+        self.name, self.keys, self.format, self.month, self.part = (
+            name,
+            tuple(keys),
+            fmt,
+            month,
+            part,
+        )
+        self._rows_per_group = row_group_rows
+        self._bounds = _month_bounds(month)
+        self._order = [*self.keys, EVENT_TIME, AVAILABLE_AT, INGESTED_AT]
+        self._folder = local / month_dir(name, fmt, month)
+        self._pending: list[pa.Table] = []
+        self._pending_rows = 0
+        self._rows = 0
+        self._single = True
+        self._last: tuple[Any, ...] | None = None
+        self._schema: pa.Schema | None = None
+        self._parquet: pq.ParquetWriter | None = None
+        self._ipc: Any = None
+        self._sink = _HashSink(name.encode() + b"\0" + json.dumps(list(self.keys)).encode() + b"\0")
+        self._partial = self._folder / f"{part}.parquet.part"
+
+    def add(self, t: PitTable) -> None:
+        """Append ``t``; its rows must all come after the rows added so far, in canonical order."""
+        if (t.name, t.keys) != (self.name, self.keys):
+            raise PartitionError(f"{t.name}{t.keys} added to a partition of {self.name}{self.keys}")
+        if t.num_rows == 0:
+            return
+        events = t.table.column(EVENT_TIME)
+        start, end = self._bounds
+        if pc.min(events).as_py() < start or pc.max(events).as_py() >= end:
+            raise PartitionError(f"{t.name}: rows outside {self.month:%Y-%m}")
+        table = t.canonical()
+        if self._schema is None:
+            self._open(table.schema)
+        elif table.schema != self._schema:
+            raise PartitionError(f"{t.name}: the columns differ from the tables added before")
+        first = tuple(table.slice(0, 1).select(self._order).to_pylist()[0].values())
+        last = tuple(table.slice(table.num_rows - 1, 1).select(self._order).to_pylist()[0].values())
+        ids = len(self.keys) + 1  # keys and event_time name one observation
+        if self._last is not None:
+            if first <= self._last:
+                raise PartitionError(f"{t.name}: rows added out of order at {first[:ids]}")
+            if first[:ids] == self._last[:ids]:
+                self._single = False
+        observations = table.group_by(self._order[:ids]).aggregate([([], "count_all")]).num_rows
+        self._single = self._single and observations == table.num_rows
+        self._last = last
+        self._rows += table.num_rows
+        self._pending.append(table)
+        self._pending_rows += table.num_rows
+        while self._pending_rows >= self._rows_per_group:
+            self._flush(self._rows_per_group)
+
+    def _open(self, schema: pa.Schema) -> None:
+        ints = [
+            f.name for f in schema if pa.types.is_int64(f.type) or pa.types.is_timestamp(f.type)
+        ]
+        others = [f.name for f in schema if f.name not in ints]
+        self._folder.mkdir(parents=True, exist_ok=True)
+        self._schema = schema
+        self._parquet = pq.ParquetWriter(
+            self._partial,
+            schema,
+            compression="zstd",
+            # The stubs say bool; pyarrow also takes a list of columns (documented).
+            use_dictionary=others,  # pyright: ignore[reportArgumentType]
+            column_encoding=dict.fromkeys(ints, _DELTA),
+            write_statistics=True,
+        )
+        self._ipc = ipc.new_stream(pa.PythonFile(self._sink, mode="w"), schema)
+
+    def _flush(self, rows: int) -> None:
+        pending = pa.concat_tables(self._pending)
+        # A slice keeps its parent's buffers at an offset, and Arrow IPC can then lay
+        # the same values out differently. Taking the rows copies them into fresh
+        # buffers, so the bytes depend on the values alone.
+        chunk = pending.slice(0, rows).take(pa.array(range(rows), type=pa.int64()))
+        rest = pending.slice(rows)
+        self._pending = [rest] if rest.num_rows else []
+        self._pending_rows = rest.num_rows
+        if self._parquet is None:
+            raise PartitionError("the partition file is not open")
+        self._parquet.write_table(chunk, row_group_size=rows)
+        self._ipc.write_table(chunk, max_chunksize=rows)
+
+    def close(self, inputs: Mapping[str, str], notes: Sequence[str] = ()) -> PartitionCard:
+        """Finish the file and write the card next to it."""
+        if self._parquet is None:
+            raise PartitionError(f"{self.name} {self.month:%Y-%m}/{self.part}: no rows to write")
+        if self._pending_rows:
+            self._flush(self._pending_rows)
+        self._parquet.close()
+        self._ipc.close()
+        path = self._folder / f"{self.part}.parquet"
+        self._partial.replace(path)
+        card = PartitionCard(
+            table=self.name,
+            keys=list(self.keys),
+            format=self.format,
+            month=f"{self.month:%Y-%m}",
+            part=self.part,
+            rows=self._rows,
+            fingerprint=str(Fingerprint(self._sink.hash.hexdigest())),
+            sha256=digest_file(path).hex,
+            single_version=self._single,
+            inputs=dict(sorted(inputs.items())),
+            notes=list(notes),
+        )
+        (self._folder / f"{self.part}.json").write_text(card.to_json(), encoding="utf-8")
+        return card
+
+
 def write_partition(
     t: PitTable,
     local: Path,
@@ -96,51 +257,10 @@ def write_partition(
     inputs: Mapping[str, str],
     row_group_rows: int,
 ) -> PartitionCard:
-    """Write ``t`` as the partition ``month``/``part`` under ``local``; returns its card.
-
-    Every row must fall in ``month``. Rows and columns are written in canonical
-    order with fixed encodings, so the same table always gives the same file.
-    """
-    start, end = _month_bounds(month)
-    events = t.table.column(EVENT_TIME)
-    if t.num_rows and (pc.min(events).as_py() < start or pc.max(events).as_py() >= end):
-        raise PartitionError(f"{t.name}: rows outside {month:%Y-%m}")
-    table = t.canonical()
-    ints = [
-        f.name for f in table.schema if pa.types.is_int64(f.type) or pa.types.is_timestamp(f.type)
-    ]
-    others = [f.name for f in table.schema if f.name not in ints]
-    folder = local / month_dir(t.name, fmt, month)
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{part}.parquet"
-    pq.write_table(
-        table,
-        path,
-        row_group_size=row_group_rows,
-        compression="zstd",
-        # The stubs say bool; pyarrow also takes a list of columns (documented).
-        use_dictionary=others,  # pyright: ignore[reportArgumentType]
-        column_encoding=dict.fromkeys(ints, _DELTA),
-        write_statistics=True,
-    )
-    ids = [*t.keys, EVENT_TIME]
-    single = (
-        t.num_rows == 0 or table.group_by(ids).aggregate([([], "count_all")]).num_rows == t.num_rows
-    )
-    card = PartitionCard(
-        table=t.name,
-        keys=list(t.keys),
-        format=fmt,
-        month=f"{month:%Y-%m}",
-        part=part,
-        rows=t.num_rows,
-        fingerprint=str(t.fingerprint),
-        sha256=digest_file(path).hex,
-        single_version=single,
-        inputs=dict(sorted(inputs.items())),
-    )
-    (folder / f"{part}.json").write_text(card.to_json(), encoding="utf-8")
-    return card
+    """Write a whole table as the partition ``month``/``part`` under ``local``; returns its card."""
+    writer = PartitionWriter(local, t.name, t.keys, fmt, month, part, row_group_rows)
+    writer.add(t)
+    return writer.close(inputs)
 
 
 @dataclass

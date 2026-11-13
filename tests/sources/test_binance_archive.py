@@ -184,3 +184,12 @@ def test_a_corrupted_member_fails_its_crc() -> None:
     good = _zip("AAAUSDT-metrics-2026-11-10.csv", "x" * 50)
     bad = good.replace(b"x" * 50, b"y" + b"x" * 49)  # stored uncompressed, so the bytes are there
     assert any("fails its CRC" in p for p in b.check(_entry(checksum=False), bad))
+
+
+def test_a_checksum_file_may_name_a_symbol_outside_ascii(server: FakeServer) -> None:
+    name = "币安USDT-metrics-2026-11-10.zip"
+    url = f"https://data.binance.vision/{ROOT}币安USDT/{name}"
+    content = _zip("币安USDT-metrics-2026-11-10.csv")
+    _serve_checksum(server, f"{hashlib.sha256(content).hexdigest()}  {name}\n")
+    entry = ManifestEntry("d", "币安USDT", "2026-11-10", url, checksum_url=url + ".CHECKSUM")
+    assert b.check(entry, content) == []

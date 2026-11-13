@@ -116,6 +116,11 @@ class SampleCheck:
 
 def verify(entry: ManifestEntry, lister: Lister) -> SampleCheck:
     """Download one file and check it against its manifest entry."""
+    return download(entry, lister)[1]
+
+
+def download(entry: ManifestEntry, lister: Lister) -> tuple[bytes, SampleCheck]:
+    """Download one file; return its bytes and how they compare with the manifest entry."""
     reply = http.fetch("GET", entry.url)
     content = reply.content
     etag = reply.headers.get("etag", "").removeprefix("W/").strip('"')
@@ -128,7 +133,8 @@ def verify(entry: ManifestEntry, lister: Lister) -> SampleCheck:
     if etag and "-" not in etag and hashlib.md5(content, usedforsecurity=False).hexdigest() != etag:
         problems.append("MD5 of the bytes differs from the ETag")
     problems += lister.check(entry, content)
-    return SampleCheck(entry.url, len(content), hashlib.sha256(content).hexdigest(), etag, problems)
+    sha = hashlib.sha256(content).hexdigest()
+    return content, SampleCheck(entry.url, len(content), sha, etag, problems)
 
 
 def pick(

@@ -7,6 +7,7 @@
 ``finresearch collect plan | run``  scheduled collection, one job per source
 ``finresearch monitor``  data freshness, outage issues, keeping schedules alive
 ``finresearch archive plan | run``  archive manifests: list, keep what changed, spot-check
+``finresearch u1 plan | build``  U1's 1-minute bars: which months to build, build one month
 """
 
 import argparse
@@ -15,10 +16,10 @@ import os
 import sys
 import tempfile
 import tomllib
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
-from finresearch import archive, collect, monitor
+from finresearch import archive, collect, monitor, u1
 from finresearch.core.config import load_toml
 from finresearch.core.time import format_utc, parse_utc
 from finresearch.data.hub import HubRemote
@@ -103,6 +104,13 @@ def _parser() -> argparse.ArgumentParser:
     arr = ar.add_parser("run", help="list a dataset, push the increment, spot-check files")
     arr.add_argument("--dataset", required=True)
     arr.add_argument("--seed", type=int, help="seed of the spot-check sample (default: today)")
+
+    uu = sub.add_parser("u1", help="U1's 1-minute bars").add_subparsers(dest="cmd", required=True)
+    up = uu.add_parser("plan", help="print the months to build as JSON")
+    up.add_argument("--exchange", required=True, choices=["binance"])
+    ub = uu.add_parser("build", help="build one month and push it")
+    ub.add_argument("--exchange", required=True, choices=["binance"])
+    ub.add_argument("--month", required=True, help="YYYY-MM")
     return ap
 
 
@@ -182,6 +190,41 @@ def _archive(args: argparse.Namespace) -> int:
         verdict = "ok" if c.ok else "PROBLEM: " + "; ".join(c.problems)
         print(f"  {c.url} {c.size} B sha256={c.sha256[:16]} etag={c.etag}: {verdict}")
     return 0 if result.ok else 1
+
+
+def _u1(args: argparse.Namespace) -> int:
+    cfg = u1.u1_config()
+    storage = load_toml("storage")
+    hub = storage["hub"]
+    try:
+        remote, limits = HubRemote.from_environment(hub), Limits.from_config(hub)
+        with tempfile.TemporaryDirectory(prefix="finresearch-u1-") as tmp:
+            if args.cmd == "plan":
+                plan = u1.plan_binance(cfg, remote, limits, Path(tmp))
+                for line in plan.stale:
+                    _warn(f"u1.bars_1m binance {line}")
+                print(json.dumps([f"{m:%Y-%m}" for m in plan.months]))
+                return 0
+            year, month = (int(x) for x in args.month.split("-"))
+            result = u1.build_binance(
+                date(year, month, 1),
+                cfg,
+                remote,
+                limits,
+                Path(tmp),
+                int(storage["canonical"]["row_group_rows"]),
+            )
+    except (SourceError, StoreError) as exc:
+        print(f"failed: {exc}")
+        return 1
+    card = result.card
+    print(f"{card.name}: {card.rows} rows from {len(card.inputs)} files; {card.fingerprint}")
+    if result.from_daily:
+        print(f"built from daily files: {', '.join(result.from_daily)}")
+    for note in card.notes:
+        _warn(f"{card.name}: {note}")
+    print(f"pushed {len(result.pushed.added)} file(s)")
+    return 0
 
 
 def _monitor() -> int:
@@ -289,7 +332,9 @@ def main(argv: list[str] | None = None) -> int:
             return _monitor()
         if args.area == "archive":
             return _archive(args)
-    except (RunError, collect.CollectError, archive.ArchiveError) as exc:
+        if args.area == "u1":
+            return _u1(args)
+    except (RunError, collect.CollectError, archive.ArchiveError, u1.U1Error) as exc:
         print(f"error: {exc}")
         return 1
     if args.cmd == "check":
