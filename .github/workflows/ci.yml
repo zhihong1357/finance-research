@@ -1,0 +1,42 @@
+# 持续集成：每次推送到 main、每个拉取请求都运行。四项检查全部通过，改动才算合格。
+# 第三方 action 固定到提交号，防止标签被改指向别的代码。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: 检查
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装（严格按锁定文件，锁定文件过期即失败）
+        run: uv sync --locked
+
+      - name: 代码风格
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: 类型检查
+        run: uv run pyright
+
+      - name: 测试
+        run: uv run pytest

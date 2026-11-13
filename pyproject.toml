@@ -1,0 +1,76 @@
+[project]
+name = "finresearch"
+version = "0.1.0"
+description = "A one-person research institute for financial markets: verifiable, reproducible, every trial accounted for."
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.170.15",
+    "pyright[nodejs]>=1.1.414",
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
+]
+
+[build-system]
+requires = ["hatchling>=1.33.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/finresearch"]
+
+# ---------------------------------------------------------------- uv
+[tool.uv]
+required-version = ">=0.11"
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # import order
+    "B",        # likely bugs
+    "UP",       # modern syntax
+    "SIM",      # simplifications
+    "C4",       # comprehensions
+    "PIE",      # misc. lints
+    "RET",      # return statements
+    "PTH",      # pathlib instead of os.path
+    "N",        # naming
+    "ANN",      # every function states its types
+    "PT",       # pytest style
+    "T20",      # no print(): libraries log
+    "S",        # security
+    "DTZ",      # no naive datetimes: every time is timezone-aware UTC (CLAUDE.md)
+    "PLR2004",  # no magic numbers in code: tunable numbers live in config (CLAUDE.md)
+    "RUF",      # ruff-specific
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",     # assert is how pytest checks
+    "PLR2004",  # hand-computed expected values are the point of a test
+]
+
+# ---------------------------------------------------------------- pyright
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.14"
+typeCheckingMode = "standard"
+strict = ["src"]
+venvPath = "."
+venv = ".venv"
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
+filterwarnings = ["error"]
+xfail_strict = true
