@@ -379,6 +379,7 @@ flowchart LR
 | Binance 归档的发布时间与校验和 | 逐日文件约晚 1 到 2 天出现（11-13 05:00 UTC 时 11-11 已有、11-12 还没有）；每个文件配一个 `.CHECKSUM`，内容是 SHA-256 | 2026-11-13 实测 |
 | Bybit 公开归档 `public.bybit.com/trading/` | 2,137 个目录，其中 1,144 个 USDT 合约；含已下架品种（SRMUSDT、LUNAUSDT、FTTUSDT、MATICUSDT 等）；BTCUSDT 从 2020-03-25 起；没有官方校验和文件，只有 HTTP 的 ETag；BTCUSDT 单日约 65 MB | 2026-11-13 实测 |
 | 从 GitHub Actions 读写 Hugging Face | 1 KB、1 MB、32 MB 各 3 轮，9 次写入读回全部核对一致，46 次调用 0 次失败。32 MB：上传中位数 7.0 秒（约 4.8 MB/s），下载 10.9 秒（约 3.1 MB/s）。小文件每次提交约 3 秒、每次读取约 2 秒，几乎全是固定开销，所以必须攒批 | 2026-11-13 实测，[存储自检第 43454712772 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43454712772) |
+| 中断通知与恢复 | 演练中，故意失败的数据源超过上限后，下一次监控开出问题（[#16](https://github.com/zhihong1357/finance-research/issues/16)，由 github-actions 机器人开）；恢复后下一次监控留言并关闭。同一次采集里另一个数据源照常入库。用 `GITHUB_TOKEN` 请求启用定时任务的调用成功 | 2026-11-13 实测 |
 | 宏观的历史公布版本 | FRED 接口按 `realtime_start`、`realtime_end` 返回历史版本（需要免费注册的 API 密钥），但它的条款禁止存档，见 7.5。费城联储的实时数据集（RTDSM）提供主要宏观变量的全部历史版本下载 | [FRED 文档](https://fred.stlouisfed.org/docs/api/fred/realtime_period.html)；[费城联储](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists) |
 
 ### 7.4 尚未核实
