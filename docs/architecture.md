@@ -338,9 +338,9 @@ flowchart LR
 | 监控 | 定时 | 检查数据新鲜度和质量，异常时通知 |
 | 研究运行 | 手动 | 执行一次已登记的试验，把结果和账本记录提交回仓库 |
 
-### 7.2 存储（提议，见决策记录 0003）
+### 7.2 存储（决策 0003，已采纳）
 
-代码仓库不存放数据。数据放在独立的私有存储里，通过一个统一的文件系统接口访问，更换后端只需要改配置。Phase 1 用不到远程存储，这个决定可以推迟到 Phase 2 开始时。
+代码仓库不存放数据。数据放在 Hugging Face 的私有数据集里，通过一个统一的文件系统接口访问，更换后端只需要改配置。按 0003 核实的限制：每个文件夹不超过 1 万个文件，所以按年、月分层；提交攒成批，每个任务每天一次。
 
 ### 7.3 已经核实的约束
 
@@ -355,14 +355,35 @@ flowchart LR
 | Binance 接口 | 拒绝美国 IP；公开行情可改用 `data-api.binance.vision` 和 `data.binance.vision` | [Binance 文档](https://developers.binance.com/docs/binance-spot-api-docs/rest-api/public-api-definitions)；实测 |
 | Binance 公开数据站 | 1,000 个以上永续合约的逐笔成交，含已下架品种；BTCUSDT 单日约 18 MB | 2026-11-13 实测，见[决策 0007](decisions/0007-breadth-first-universe.md) |
 | CBOE 延迟期权链原始文件 | SPX、SPY、QQQ、IBIT 四个标的压缩后合计约 3.5 MB/天，一年约 0.9 GB | 2026-11-13 实测 |
+| Hugging Face 仓库 | 每个文件夹最多 1 万个文件；每次提交建议 50 到 100 个文件；提交数过几千后体验变差 | [Hugging Face 文档](https://huggingface.co/docs/hub/storage-limits)，2026-11-13 读取 |
+| 定时工作流 | 公开仓库 60 天没有任何活动，定时工作流被自动停用 | [GitHub 文档](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows) |
+| Binance 归档的发布时间与校验和 | 逐日文件约晚 1 到 2 天出现（11-13 05:00 UTC 时 11-11 已有、11-12 还没有）；每个文件配一个 `.CHECKSUM`，内容是 SHA-256 | 2026-11-13 实测 |
+| Bybit 公开归档 `public.bybit.com/trading/` | 2,137 个目录，其中 1,144 个 USDT 合约；含已下架品种（SRMUSDT、LUNAUSDT、FTTUSDT、MATICUSDT 等）；BTCUSDT 从 2020-03-25 起；没有官方校验和文件，只有 HTTP 的 ETag；BTCUSDT 单日约 65 MB | 2026-11-13 实测 |
+| 宏观的历史公布版本 | FRED 接口按 `realtime_start`、`realtime_end` 返回历史版本（需要免费注册的 API 密钥），但它的条款禁止存档，见 7.5。费城联储的实时数据集（RTDSM）提供主要宏观变量的全部历史版本下载 | [FRED 文档](https://fred.stlouisfed.org/docs/api/fred/realtime_period.html)；[费城联储](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists) |
 
-### 7.4 尚未核实，Phase 2 开始前要查清的事
+### 7.4 尚未核实
 
-- 公开仓库长期没有提交时，定时工作流是否会被自动停用，以及怎样避免。
-- FRED 历史公布版本（宏观数据修订前的值）的免费获取方式。
-- 每个数据源的使用条款是否允许个人存档和研究使用，尤其是 Binance 和 Bybit 的公开归档。
-- Bybit 公开归档是否包含已下架品种，以及最早的日期。
-- 从 GitHub Actions 读写 Hugging Face 或 R2 的速度和稳定性。
+原列的五项中，三项已核实（见 7.3 和 7.5）。剩下的在 Phase 2 对应的步骤里实测：
+
+- 从 GitHub Actions 读写 Hugging Face 的速度和失败率（2.1）。
+- 定时工作流停用的对策是否有效。已知的做法是在 60 天内用接口重新启用工作流或做一次提交，GitHub 文档没有说明哪种会重置计时（2.2）。
+- 费城联储实时数据集、美国劳工统计局等原始发布机构、CFTC 的使用条款（2.6）。
+- Bybit 公开归档的专门条款。只找到 Bybit 接口条款，其中禁止把接口用于商业利用（2.4）。
+
+### 7.5 数据使用条款
+
+以下摘自各数据源的条款原文（2026-11-13 读取）。这里是事实摘要，不是法律意见。
+
+| 数据源 | 允许 | 限制 | 对本系统的影响 |
+|---|---|---|---|
+| Binance 公开数据站 | 学术研究、个人非生产用途的历史回测（第 4.1 条）；许可是 CC BY-NC-SA 4.0（第 3.1 条） | 禁止用于实盘的自营交易执行和向他人提供信号（4.2）；禁止商业利用和用于商业产品（4.3、4.4）；由数据得出的模型和指标同样受这些条款约束（2.4）；对外发布的派生作品要注明来源并沿用同一许可（4.5） | 研究可以做。Phase 8 实盘前必须另取许可，因为由这些数据得出的模型也不能用于实盘。对外公开的结果要注明来源 |
+| Bybit | 未找到公开归档的专门条款 | 接口条款禁止商业利用接口（第 6.9 条） | 个人研究不在明文禁止之列（推测，未核实） |
+| Deribit | 市场数据和派生数据只限个人使用（2026-01-26 版会员条款 2.10） | 2021 年加入的条款写明：除个人使用外，未经许可不得汇总、转售、发布或转发市场数据和派生数据 | 可以私下存档和研究；由它得出的结果不能发布到公开仓库 |
+| Cboe 网站（延迟期权链） | 下载一份供个人非商业使用 | 网站条款把"存入电子检索系统"列为需事先书面同意的行为；网站声明内容不是供交易使用的 | **与 Phase 0.5 的录制存在冲突**，需要所有者决定，见落地顺序"需要所有者决定的事" |
+| FRED | 个人、非商业地下载和使用 | 禁止用接口存储、缓存、存档，或把内容并入数据库；禁止用接口的数据训练机器学习模型；禁止批量下载 | 不把 FRED 作为原始层的数据源。宏观的历史版本改从原始发布机构和费城联储实时数据集获取 |
+| 纽约联储（SOFR 等参考利率） | 以人工或自动方式访问；下载、存储、复制、分发、制作派生作品 | 使用或分发参考利率时附上规定的声明 | 可以存档和使用 |
+
+来源：[Binance Vision 数据集条款](https://data.binance.vision/Binance_Vision-Terms_of_Use.pdf)；[Bybit 接口条款](https://www.bybit.com/common-static/compliance/legal/BYBIT/df1923006718fbba8ba70d7d762b9866.pdf)；[Deribit 会员条款](https://support.deribit.com/hc/en-us/articles/25944532191645-Deribit-Exchange-Membership-Terms-Deribit-FZE)；[Deribit 2021 年条款更新](https://insights.deribit.com/exchange-updates/deribit-updates-terms-of-service-as-of-29-january-2021/)；[Cboe 网站条款](https://www.cboe.com/terms)；[FRED 条款](https://fred.stlouisfed.org/legal/terms/)；[纽约联储条款](https://www.newyorkfed.org/privacy/termsofuse.html)。
 
 ## 8. AI 助手的位置
 
