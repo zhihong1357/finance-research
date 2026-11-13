@@ -38,3 +38,10 @@ def test_a_hard_error_is_not_retried(server: FakeServer) -> None:
     with pytest.raises(SourceError, match="HTTP 400"):
         http.request("POST", "https://x.invalid/", body={"type": "x"})
     assert len(server.requests) == 1
+
+
+def test_fetch_also_returns_the_headers_in_lower_case(server: FakeServer) -> None:
+    server.handler = lambda _r: httpx2.Response(200, content=b"zip", headers={"ETag": '"abc"'})
+    reply = http.fetch("GET", "https://x.invalid/f.zip")
+    assert reply.content == b"zip"
+    assert reply.headers["etag"] == '"abc"'

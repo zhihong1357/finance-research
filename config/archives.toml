@@ -1,0 +1,66 @@
+# 归档清单（Phase 2.4）。交易所的公开归档可以随时重新下载，而且量很大，原始层只记
+# 每个文件的地址、大小、校验和（架构 2.2 的例外）。每个数据集一张清单，按时间增量存放：
+# 每次列目录只存新出现、有变化、消失的文件（data/manifest.py）。
+#
+# 每个数据集列出全部品种目录，包括已下架、已交割的合约和非 USDT 合约；研究宇宙
+# （USDT 永续合约）在加工时（2.5）再筛选，筛选规则不在这里提前做。
+
+[listing]
+workers = 16                    # 并行列目录的线程数；Binance 一个日度数据集约 1,000 个品种、66 万个文件，16 个线程约 2 分钟
+max_skipped_shown = 20          # 不认识的文件名最多在日志里列出几个
+
+[monitor]
+max_age_hours = 200             # 每周一次（168 小时）加 32 小时余量；超过就开数据中断问题
+
+[verify]
+max_sample = 12                 # 每次运行随机抽查的文件数上限（数据集可以设得更少）
+new_share = 0.5                 # 抽查名额里留给本次新出现文件的比例
+
+# Binance 公开数据站：U 本位合约（um）。root 是存储桶里的目录，sub 是品种目录下的子目录（K 线按周期分）。
+[datasets."binance.um.trades.daily"]
+exchange = "binance"
+root = "data/futures/um/daily/trades/"
+sample = 6                      # 逐笔成交文件大（BTCUSDT 单日几十 MB），少抽几个
+added = "2026-11-15T00:00:00Z"   # 加入的时刻；此后 max_age_hours 内还没有清单不算中断
+enabled = true
+
+[datasets."binance.um.aggtrades.daily"]
+exchange = "binance"
+root = "data/futures/um/daily/aggTrades/"
+sample = 6
+added = "2026-11-15T00:00:00Z"
+enabled = true
+
+[datasets."binance.um.klines_1m.daily"]
+exchange = "binance"
+root = "data/futures/um/daily/klines/"
+sub = "1m/"
+added = "2026-11-15T00:00:00Z"
+enabled = true
+
+[datasets."binance.um.mark_1m.daily"]
+exchange = "binance"
+root = "data/futures/um/daily/markPriceKlines/"
+sub = "1m/"
+added = "2026-11-15T00:00:00Z"
+enabled = true
+
+[datasets."binance.um.metrics.daily"]
+exchange = "binance"
+root = "data/futures/um/daily/metrics/"   # 持仓量、多空比，5 分钟一条；从 2020-09 开始
+added = "2026-11-15T00:00:00Z"
+enabled = true
+
+[datasets."binance.um.funding.monthly"]
+exchange = "binance"
+root = "data/futures/um/monthly/fundingRate/"   # 资金费率只有月度文件
+added = "2026-11-15T00:00:00Z"
+enabled = true
+
+# Bybit 公开归档：只有逐笔成交（trading/）；资金费率、持仓量、标记价格不在归档里。
+[datasets."bybit.trades.daily"]
+exchange = "bybit"
+root = "trading/"
+sample = 4                      # BTCUSDT 单日约 65 MB
+added = "2026-11-15T00:00:00Z"
+enabled = true

@@ -55,6 +55,7 @@ GitHub 的通知邮件来自 `notifications@github.com`。2.2 演练时这封邮
 
 - `heartbeat.canary`（心跳）中断，说明是整条采集流程出了问题，例如 Hugging Face 的令牌失效，而不是某个数据源。
 - `heartbeat.drill` 是演练用的。Phase 2.2 验收时它会故意中断一次，那封邮件是预期之中的。
+- 名字以 `binance.um.` 或 `bybit.` 开头的是归档清单，每周一更新一次，超过 200 小时没有新清单才算中断。多半是交易所改了归档的格式，或者拒绝了 GitHub 的访问。
 - 收到"仓库将近 60 天没有活动"的提醒时，合并任意一个拉取请求即可。如果定时任务已经被停用，在仓库的 Actions 页面分别打开"采集"和"监控"，点 Enable workflow。
 
 ## 给 AI 会话
@@ -76,6 +77,8 @@ uv run finresearch storage selftest                        # 远程存储自检�
 uv run finresearch collect plan --group every8h            # 列出一个定时组里启用的数据源
 uv run finresearch collect run --source heartbeat.canary   # 采集一个数据源并推送，需要 HF_TOKEN 和 HF_DATASET
 uv run finresearch monitor                                 # 监控一遍，还需要 GITHUB_TOKEN（只在 Actions 里运行）
+uv run finresearch archive plan                            # 列出启用的归档数据集
+uv run finresearch archive run --dataset bybit.trades.daily  # 列目录、推送增量清单、抽查文件，需要 HF_TOKEN 和 HF_DATASET
 ```
 
 ### 记一次试验

@@ -1,0 +1,80 @@
+# 归档清单（Phase 2.4）：每周列一次 Binance、Bybit 公开归档的目录，把新出现、有变化、
+# 消失的文件记成一份增量清单推到数据集；然后随机下载几个文件，与清单核对。
+# 每个数据集单独一个任务，一个失败不影响其他（fail-fast: false）。
+name: 归档清单
+
+on:
+  schedule:
+    - cron: "37 3 * * 1"     # 每周一 03:37 UTC
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: 只跑一个数据集（config/archives.toml 的 datasets；留空跑全部）
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: archive
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: 列出数据集
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      datasets: ${{ steps.plan.outputs.datasets }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - id: plan
+        name: 列出
+        env:
+          DATASET: ${{ inputs.dataset }}
+        run: |
+          if [ -n "$DATASET" ]; then
+            echo "datasets=$(jq -cn --arg d "$DATASET" '[$d]')" >> "$GITHUB_OUTPUT"
+          else
+            echo "datasets=$(uv run finresearch archive plan)" >> "$GITHUB_OUTPUT"
+          fi
+
+  archive:
+    needs: plan
+    if: needs.plan.outputs.datasets != '[]'
+    name: ${{ matrix.dataset }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3          # 对归档服务器客气一点
+      matrix:
+        dataset: ${{ fromJSON(needs.plan.outputs.datasets) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - name: 列目录、推送增量、抽查
+        env:
+          DATASET: ${{ matrix.dataset }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET: ${{ vars.HF_DATASET }}
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+        run: uv run finresearch archive run --dataset "$DATASET"

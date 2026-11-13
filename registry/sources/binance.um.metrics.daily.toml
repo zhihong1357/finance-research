@@ -1,0 +1,17 @@
+id = "binance.um.metrics.daily"
+name = "Binance U 本位合约持仓量与多空比（公开数据站，逐日文件，5 分钟一条）"
+url = "https://data.binance.vision/?prefix=data/futures/um/daily/metrics/"
+access = "archive"
+redownloadable = true
+official_checksums = true
+event_time = "统计时刻（create_time，UTC）"
+available_at = "统计时刻加数据延迟"
+rate_limit = "列目录走存储桶索引，每页 1,000 个文件；每周一次，16 个线程并行"
+terms_url = "https://data.binance.vision/Binance_Vision-Terms_of_Use.pdf"
+terms_checked = true
+known_issues = [
+  "条款：CC BY-NC-SA 4.0，只限学术研究和个人非生产用途的历史回测；由它得出的模型也不能用于实盘（架构 7.5）。原始文件不进公开仓库",
+  "逐日文件约晚 1 到 2 天出现在归档里；归档出现的时刻不是可用时刻：这些行情当时是实时公开的",
+  "从 2020-09 开始，早于此没有",
+  "归档里有几个不按命名规则的文件（例如 MATICUSDT-metrics-1993.zip），列目录时记为不认识的文件名",
+]

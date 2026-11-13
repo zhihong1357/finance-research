@@ -5,7 +5,8 @@ the repository's issues match:
 
 * **stale source**: an enabled source whose newest record in the remote store
   is older than its ``max_age_hours`` (or, for a source without records yet,
-  whose ``added`` time is that old);
+  whose ``added`` time is that old). Archive datasets (``config/archives.toml``)
+  count as sources: their record is the newest manifest increment;
 * **inactivity**: no push to the repository for ``inactivity_warn_days``.
   GitHub disables scheduled workflows in a public repository after 60 days
   without activity, so the owner is warned while there is still time.
@@ -27,6 +28,7 @@ from datetime import datetime, timedelta
 from typing import Any, Protocol
 
 from finresearch.core.time import ensure_utc, month_start, parse_utc, utc
+from finresearch.data.manifest import PREFIX, increment_time
 from finresearch.data.store import Remote
 from finresearch.github import Issue, Workflow
 
@@ -67,6 +69,12 @@ def newest_record(remote: Remote, source: str, now: datetime) -> datetime | None
     return None
 
 
+def newest_increment(remote: Remote, dataset: str) -> datetime | None:
+    """When the newest manifest increment of an archive dataset was listed, if any."""
+    times = [t for p in remote.list(f"{PREFIX}/{dataset}") if (t := increment_time(p)) is not None]
+    return max(times, default=None)
+
+
 @dataclass(frozen=True, slots=True)
 class Alert:
     key: str
@@ -96,6 +104,22 @@ def check_sources(cfg: Mapping[str, Any], remote: Remote, now: datetime) -> list
             continue
         newest = newest_record(remote, name, now)
         since = newest or parse_utc(str(src["added"]))
+        out.append(SourceStatus(name, True, newest, max_age, stale=now - since > max_age))
+    return out
+
+
+def check_archives(
+    archives: Mapping[str, Any], remote: Remote, now: datetime
+) -> list[SourceStatus]:
+    """Each archive dataset is stale when no manifest increment arrived within the limit."""
+    max_age = timedelta(hours=float(archives["monitor"]["max_age_hours"]))
+    out: list[SourceStatus] = []
+    for name, spec in sorted(archives["datasets"].items()):
+        if not spec.get("enabled", False):
+            out.append(SourceStatus(name, False, None, max_age, stale=False))
+            continue
+        newest = newest_increment(remote, name)
+        since = newest or parse_utc(str(spec["added"]))
         out.append(SourceStatus(name, True, newest, max_age, stale=now - since > max_age))
     return out
 
@@ -189,10 +213,16 @@ def keepalive(repo: Repo, scheduled: list[str]) -> list[str]:
     return done
 
 
-def run(cfg: Mapping[str, Any], remote: Remote, repo: Repo, now: datetime) -> list[str]:
+def run(
+    cfg: Mapping[str, Any],
+    archives: Mapping[str, Any],
+    remote: Remote,
+    repo: Repo,
+    now: datetime,
+) -> list[str]:
     """One monitor pass. Returns log lines (sizes, times and states only, never data)."""
     mon = cfg["monitor"]
-    statuses = check_sources(cfg, remote, now)
+    statuses = check_sources(cfg, remote, now) + check_archives(archives, remote, now)
     lines = [
         f"{s.source}: {'disabled' if not s.enabled else ('STALE' if s.stale else 'ok')}"
         f" (newest {_fmt(s.newest)})"

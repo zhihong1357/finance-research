@@ -5,9 +5,11 @@ from finresearch.core.time import utc
 from finresearch.data.store import DirectoryRemote
 from finresearch.github import Issue, Workflow
 from finresearch.monitor import (
+    check_archives,
     check_sources,
     inactivity_alert,
     keepalive,
+    newest_increment,
     newest_record,
     record_time,
     run,
@@ -29,6 +31,21 @@ CFG = {
         "scheduled_workflows": [".github/workflows/collect.yml", ".github/workflows/monitor.yml"],
     },
 }
+
+ARCHIVES = {
+    "monitor": {"max_age_hours": 200},
+    "datasets": {
+        "weekly": {"added": "2026-11-01T00:00:00Z", "enabled": True},
+        "late": {"added": "2026-11-01T00:00:00Z", "enabled": True},
+        "off": {"added": "2026-11-01T00:00:00Z", "enabled": False},
+    },
+}
+
+
+def _increment(remote: DirectoryRemote, dataset: str, at: datetime) -> None:
+    path = remote.root / f"manifests/{dataset}/{at:%Y%m%dT%H%M%SZ}.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
 
 
 def _record(remote: DirectoryRemote, source: str, at: datetime) -> None:
@@ -104,6 +121,23 @@ def test_staleness_by_source(tmp_path: Path) -> None:
     assert "`stale` 已经 18 小时没有新数据，上限是 17 小时。" in alert.body
 
 
+def test_archive_datasets_are_stale_without_a_recent_increment(tmp_path: Path) -> None:
+    remote = DirectoryRemote(tmp_path)
+    assert newest_increment(remote, "weekly") is None
+    _increment(remote, "weekly", utc(2026, 11, 16, 3, 37))
+    _increment(remote, "weekly", utc(2026, 11, 23, 3, 37))
+    _increment(remote, "late", utc(2026, 11, 23, 3, 37) - timedelta(days=1))
+    assert newest_increment(remote, "weekly") == utc(2026, 11, 23, 3, 37)
+    status = {s.source: s for s in check_archives(ARCHIVES, remote, NOW - timedelta(days=1))}
+    # 2026-12-01 12:00 is 200 h 23 min after 11-23 03:37, and 224 h 23 min after 11-22 03:37
+    assert status["weekly"].stale
+    assert status["late"].stale
+    status = {s.source: s for s in check_archives(ARCHIVES, remote, utc(2026, 12, 1, 11))}
+    assert not status["weekly"].stale  # 199 h 23 min
+    assert status["late"].stale
+    assert not status["off"].stale
+
+
 def test_issues_follow_the_alerts() -> None:
     repo = FakeRepo([Issue(7, "unrelated", "written by a person")])
     alert = source_alerts(check_sources(CFG, DirectoryRemote(Path("/nonexistent")), NOW), NOW)
@@ -141,9 +175,14 @@ def test_one_monitor_pass(tmp_path: Path) -> None:
     remote = DirectoryRemote(tmp_path)
     _record(remote, "fresh", NOW - timedelta(hours=1))
     _record(remote, "stale", NOW - timedelta(days=2))
+    _increment(remote, "weekly", NOW - timedelta(days=2))
+    _increment(remote, "late", NOW - timedelta(days=10))
     repo = FakeRepo(pushed=NOW - timedelta(days=50))
-    lines = run(CFG, remote, repo, NOW)
+    lines = run(CFG, ARCHIVES, remote, repo, NOW)
     assert "stale: STALE (newest 2026-11-30 12:00 UTC)" in lines
+    assert "weekly: ok (newest 2026-11-30 12:00 UTC)" in lines
+    assert "late: STALE (newest 2026-11-22 12:00 UTC)" in lines
     assert "opened #1: source:stale" in lines
-    assert "opened #2: inactivity" in lines
+    assert "opened #2: source:late" in lines
+    assert "opened #3: inactivity" in lines
     assert repo.enabled == [2, 3]

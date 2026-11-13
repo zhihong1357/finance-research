@@ -10,6 +10,7 @@ touches the network during tests.
 
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import httpx2
@@ -26,6 +27,14 @@ def _settings() -> Mapping[str, Any]:
     return load_toml("collect")["http"]
 
 
+@dataclass(frozen=True, slots=True)
+class Reply:
+    """A successful response: the body as sent and the headers (names in lower case)."""
+
+    content: bytes
+    headers: Mapping[str, str]
+
+
 def request(
     method: str,
     url: str,
@@ -34,6 +43,17 @@ def request(
     body: Mapping[str, Any] | None = None,
 ) -> bytes:
     """The response body as sent; ``SourceError`` once retries run out or on a hard error."""
+    return fetch(method, url, params=params, body=body).content
+
+
+def fetch(
+    method: str,
+    url: str,
+    *,
+    params: Mapping[str, str] | None = None,
+    body: Mapping[str, Any] | None = None,
+) -> Reply:
+    """Like ``request``, but also returns the headers (for ETag and Content-Length)."""
     cfg = _settings()
     retries, wait = int(cfg["retries"]), float(cfg["retry_wait_seconds"])
     headers = {"User-Agent": str(cfg["user_agent"])}
@@ -48,7 +68,9 @@ def request(
                 last = type(exc).__name__
             else:
                 if response.status_code == _OK:
-                    return response.content
+                    return Reply(
+                        response.content, {k.lower(): v for k, v in response.headers.items()}
+                    )
                 last = f"HTTP {response.status_code}"
                 if response.status_code not in _RETRY_STATUS:
                     break
