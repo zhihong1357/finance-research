@@ -221,8 +221,10 @@ def _u1(args: argparse.Namespace) -> int:
     print(f"{card.name}: {card.rows} rows from {len(card.inputs)} files; {card.fingerprint}")
     if result.from_daily:
         print(f"built from daily files: {', '.join(result.from_daily)}")
-    for note in card.notes:
-        _warn(f"{card.name}: {note}")
+    if card.notes:
+        # The notes come from the data itself (decision 0008): only their number goes in this
+        # public log; the notes are on the partition card in the private dataset.
+        _warn(f"{card.name}: {len(card.notes)} note(s) on impossible bars, on the partition card")
     print(f"pushed {len(result.pushed.added)} file(s)")
     return 0
 
