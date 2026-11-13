@@ -15,3 +15,4 @@
 | [0007](0007-breadth-first-universe.md) | 广度优先：第一个研究宇宙是加密永续合约 | 已采纳 |
 | [0008](0008-derived-results.md) | 由第三方数据得出的结果不进公开仓库 | 已采纳 |
 | [0009](0009-cboe-option-chains.md) | 美股期权链：先向 Cboe 申请许可，获批前暂停录制 | 已采纳 |
+| [0010](0010-u1-minute-data.md) | U1 的 1 分钟数据：Binance 取官方 K 线，Bybit 由逐笔成交加工 | 已采纳 |
