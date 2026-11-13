@@ -45,3 +45,22 @@ def test_fetch_also_returns_the_headers_in_lower_case(server: FakeServer) -> Non
     reply = http.fetch("GET", "https://x.invalid/f.zip")
     assert reply.content == b"zip"
     assert reply.headers["etag"] == '"abc"'
+
+
+def test_requests_to_a_paced_host_take_turns(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = [100.0]
+    slept: list[float] = []
+    monkeypatch.setattr(http.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(http.time, "sleep", slept.append)
+    monkeypatch.setattr(http, "_next_slot", {})
+    for _ in range(3):
+        http.wait_turn("x.invalid", per_second=4)
+    assert slept == [0.25, 0.5]  # the first goes now, the next two wait their slots
+    clock[0] = 101.0  # later than every slot taken so far
+    http.wait_turn("x.invalid", per_second=4)
+    http.wait_turn("y.invalid", per_second=4)  # another host has its own slots
+    assert slept == [0.25, 0.5]
+
+
+def test_the_paced_hosts_are_configured() -> None:
+    assert http._settings()["max_per_second"]["public.bybit.com"] > 0  # pyright: ignore[reportPrivateUsage]

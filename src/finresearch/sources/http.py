@@ -50,6 +50,23 @@ def request(
 
 
 _local = threading.local()
+_pace_lock = threading.Lock()
+_next_slot: dict[str, float] = {}
+
+
+def wait_turn(host: str, per_second: float) -> None:
+    """Space requests to ``host`` at most ``per_second`` apart, across all threads.
+
+    Some archives sit behind a firewall that blocks an address sending too many
+    requests too fast (Bybit answered 403 after a burst of HEAD requests from
+    GitHub Actions). Each request takes the next free slot and waits for it.
+    """
+    with _pace_lock:
+        now = time.monotonic()
+        slot = max(now, _next_slot.get(host, now))
+        _next_slot[host] = slot + 1 / per_second
+    if slot > now:
+        time.sleep(slot - now)
 
 
 def _client(cfg: Mapping[str, Any]) -> httpx2.Client:
@@ -85,8 +102,12 @@ def fetch(
     cfg = _settings()
     retries, wait = int(cfg["retries"]), float(cfg["retry_wait_seconds"])
     client = _client(cfg)
+    host = httpx2.URL(url).host
+    rate = cfg.get("max_per_second", {}).get(host)
     last = ""
     for attempt in range(retries + 1):
+        if rate is not None:
+            wait_turn(host, float(rate))
         try:
             response = client.request(method, url, params=params, json=body)
         except httpx2.TransportError as exc:

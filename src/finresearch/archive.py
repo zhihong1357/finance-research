@@ -41,6 +41,7 @@ from finresearch.data.manifest import (
 )
 from finresearch.data.store import Limits, PushReport, Remote, local_files, pull, push
 from finresearch.sources import binance_archive, bybit_archive, http
+from finresearch.sources.base import SourceError
 
 
 class ArchiveError(RuntimeError):
@@ -103,17 +104,29 @@ def list_dataset(dataset: str, spec: Mapping[str, Any], workers: int) -> Listing
     return Listing(entries, len(symbols), skipped)
 
 
+@dataclass(frozen=True)
+class Described:
+    entries: list[ManifestEntry]
+    asked: int  # files asked about in this run
+    left: int  # files still without a description (the next run asks)
+    error: str | None  # why asking stopped early, if it did
+
+
 def describe_all(
     entries: Sequence[ManifestEntry],
     before: Mapping[str, ManifestEntry],
     lister: Lister,
     workers: int,
-) -> tuple[list[ManifestEntry], int]:
-    """Entries with size, ETag and publication time filled in; and how many needed asking.
+    limit: int,
+) -> Described:
+    """Entries with size, ETag and publication time filled in where the listing lacks them.
 
     A file the previous listing already described keeps that description (a
     listing of names alone cannot see a file change; a download that no longer
-    matches the description fails its check). Only the rest are asked about.
+    matches the description fails its check). Of the rest, at most ``limit`` are
+    asked about. The first failed request stops the asking (a firewall that has
+    started refusing should not be pressed further); files not asked about stay
+    as they were and are asked about in a later run.
     """
     known: list[ManifestEntry] = []
     todo: list[ManifestEntry] = []
@@ -125,9 +138,32 @@ def describe_all(
             known.append(replace(e, size=old.size, etag=old.etag, last_modified=old.last_modified))
         else:
             todo.append(e)
+    todo.sort(key=lambda e: e.url)
+    asked: list[ManifestEntry] = []
+    error: str | None = None
+
+    def ask(e: ManifestEntry) -> ManifestEntry | str:
+        try:
+            return lister.describe(e)
+        except SourceError as exc:
+            return str(exc)
+
+    chunk = workers * 16
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        asked = list(pool.map(lister.describe, todo))
-    return sorted(known + asked, key=lambda e: e.url), len(todo)
+        for start in range(0, min(len(todo), limit), chunk):
+            batch = todo[start : min(start + chunk, limit)]
+            for result in pool.map(ask, batch):
+                if isinstance(result, str):
+                    error = error or result
+                else:
+                    asked.append(result)
+            if error is not None:
+                break
+    done = {e.url for e in asked}
+    rest = [e for e in todo if e.url not in done]
+    return Described(
+        sorted(known + asked + rest, key=lambda e: e.url), len(asked), len(rest), error
+    )
 
 
 @dataclass(frozen=True)
@@ -197,6 +233,8 @@ class RunResult:
     files: int
     bytes_listed: int
     described: int  # files whose size and ETag had to be asked for (HEAD) in this run
+    undescribed: int  # files still without size and ETag; a later run asks
+    describe_error: str | None  # why asking stopped early, if it did
     counts: dict[str, int]  # change -> number of rows in the increment
     skipped: list[str]  # all of them; at most ``max_skipped``
     no_checksum: int  # files without an official checksum, where the archive promises one
@@ -233,9 +271,15 @@ def run(
             f"(limit {limit}), e.g. {listing.skipped[:3]}; nothing was stored"
         )
     lister = LISTERS[spec["exchange"]]
-    entries, described = describe_all(
-        listing.entries, before, lister, int(cfg["listing"]["describe_workers"])
+    listing_cfg = cfg["listing"]
+    described = describe_all(
+        listing.entries,
+        before,
+        lister,
+        int(listing_cfg["describe_workers"]),
+        int(listing_cfg["describe_max"]),
     )
+    entries = described.entries
     rows = diff(before, entries)
     out = work / "out"
     path = increment_path(dataset, ensure_utc(now))
@@ -250,7 +294,9 @@ def run(
         symbols=listing.symbols,
         files=len(entries),
         bytes_listed=sum(e.size or 0 for e in entries),
-        described=described,
+        described=described.asked,
+        undescribed=described.left,
+        describe_error=described.error,
         counts=counts,
         skipped=listing.skipped,
         no_checksum=sum(e.checksum_url is None for e in entries)

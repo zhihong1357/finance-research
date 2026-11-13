@@ -13,6 +13,9 @@ retries = 2                     # 超时、断线、429、5xx 时重试的次数
 retry_wait_seconds = 5
 user_agent = "finresearch/0.1 (personal research; https://github.com/zhihong1357/finance-research)"
 
+[http.max_per_second]           # 每个主机每秒最多几个请求（所有线程合计）
+"public.bybit.com" = 50         # 一阵密集的 HEAD 请求后 Bybit 回了 403（2026-11-13，GitHub Actions）
+
 [sources."heartbeat.canary"]
 group = "every8h"
 max_age_hours = 17              # 超过这么久没有新记录就算中断：两次运行的间隔加一小时余量
