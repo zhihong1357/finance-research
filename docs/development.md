@@ -27,6 +27,20 @@
 | 账本引用的代码版本都在历史里 | 账本记录了某个代码版本，但它已经不在仓库历史里（例如拉取请求被压缩合并），那次试验就无法重跑 |
 | 重现合成数据上的试验 | 切回账本记录的代码版本，从空白状态重跑，结果指纹或输出指纹与账本不一致 |
 
+### 配置远程存储（一次性，Phase 2.1）
+
+数据放在你的 Hugging Face 私有数据集里（[决策 0003](decisions/0003-data-storage.md)）。GitHub 上的任务需要一把只能写这个数据集的钥匙（令牌）。全程在网页上完成，大约十分钟：
+
+1. **注册。** 在 [huggingface.co](https://huggingface.co/join) 注册一个免费账户。
+2. **建数据集。** 右上角头像 → New Dataset。名字建议 `finance-research-data`，可见性选 **Private**（私有），然后创建。记下完整的名字，形如 `你的用户名/finance-research-data`。
+3. **建令牌。** 右上角头像 → Settings → Access Tokens → Create new token。类型选 **Fine-grained**（细粒度）。在 Repositories permissions 里搜索并选中上一步的数据集，勾选 **Write access to contents/settings of selected repos**，其余全部不勾。名字写 `finance-research-actions`。创建后令牌只显示一次，先复制下来。
+4. **把令牌交给 GitHub。** 打开本仓库的 Settings → Secrets and variables → Actions：
+   - 在 **Secrets** 标签页点 New repository secret，名字填 `HF_TOKEN`，值粘贴令牌。
+   - 在 **Variables** 标签页点 New repository variable，名字填 `HF_DATASET`，值填第 2 步的完整名字。
+5. 告诉 AI 已经配好。AI 会运行"存储自检"任务：写入随机内容、读回、核对、删除，并把速度和失败率写进架构文档。
+
+令牌只放在 GitHub Secrets 里，不要贴进对话、提交或任何文件。令牌泄露时，在 Hugging Face 的 Access Tokens 页面删除它，再按第 3、4 步换一把新的。数据集名带着你的用户名，所以放在 Variables 里，而不是写进公开仓库。
+
 ## 给 AI 会话
 
 ### 常用命令
@@ -42,6 +56,7 @@ uv run finresearch registry check-append-only --base main  # 历史只增不改
 uv run finresearch registry check-commits                  # 账本引用的提交都在历史里
 uv run finresearch run --study thin_slice --hypothesis H-0001 --segment exploration
 uv run finresearch reproduce --synthetic                   # 从空白状态重跑合成数据上的试验
+uv run finresearch storage selftest                        # 远程存储自检，需要 HF_TOKEN 和 HF_DATASET
 ```
 
 ### 记一次试验
@@ -69,6 +84,8 @@ uv run finresearch reproduce --synthetic                   # 从空白状态重�
 | tzdata | 1.2 | 时区规则随代码锁定，不依赖运行机器的系统时区 |
 | pydantic | 1.4 | 注册表文件的格式校验，错误信息指出具体字段（[决策 0004](decisions/0004-toolchain.md) 已列入） |
 | pyarrow | 1.5 | 时点表的内存格式和 Parquet 读写（决策 0004 已列入）。另有开发依赖 `pyarrow-stubs` 补充类型标注 |
+| huggingface-hub | 2.1 | 远程存储（[决策 0003](decisions/0003-data-storage.md)）：批量提交、列出、下载。官方客户端，处理大文件的分块上传。它会带进一批间接依赖（httpx2、hf-xet、fsspec 等） |
+| httpx2 | 2.1 | huggingface-hub 的网络层。直接声明是因为代码要按它的异常类型区分"值得重试"的网络错误 |
 
 ### 测试的约束
 

@@ -1,0 +1,16 @@
+# 远程存储（决策 0003：Hugging Face 私有数据集）。
+# 数据集名和令牌不写在这里：令牌放 GitHub Secrets 的 HF_TOKEN，数据集名放 GitHub
+# Variables 的 HF_DATASET。数据集名里带着账户名，账户标识不进仓库。
+
+[hub]
+repo_type = "dataset"
+revision = "main"
+max_files_per_commit = 50       # Hugging Face 建议每次提交 50 到 100 个文件
+max_entries_per_folder = 9000   # 硬限制是每个文件夹 10,000 个，留出余量
+retries = 3                     # 网络或服务端的临时错误最多重试几次
+retry_wait_seconds = 15
+
+[selftest]
+prefix = "_selftest"            # 自检只写在这个文件夹下，结束后删除
+sizes_bytes = [1024, 1048576, 33554432]   # 1 KB、1 MB、32 MB
+rounds = 3

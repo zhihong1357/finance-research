@@ -5,6 +5,8 @@ description = "A one-person research institute for financial markets: verifiable
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [
+    "httpx2>=2.0.0,<3",
+    "huggingface-hub>=2.4.0",
     "pyarrow>=26.0.1",
     "pydantic>=2.14.3",
     "tzdata>=2026.6",

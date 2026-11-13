@@ -13,7 +13,7 @@ AT = utc(2026, 11, 13, 4, 5, 6)
 def test_saved_bytes_come_back_unchanged(tmp_path: Path) -> None:
     store = RawStore(tmp_path)
     rec = store.save("src.a", "series", "https://example.org/x", AT, b'{"v": 1}')
-    assert rec.path == Path("raw/src.a/2026-11-13/series-040506Z.json.gz")
+    assert rec.path == Path("raw/src.a/2026/11/13/series-040506Z.json.gz")
     assert rec.fingerprint == digest_bytes(b'{"v": 1}')
     assert store.records("src.a") == [rec]
     assert store.read(rec) == b'{"v": 1}'
