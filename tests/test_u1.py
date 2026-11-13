@@ -4,9 +4,11 @@ manifests, and a local stand-in for the remote store."""
 import gzip
 import hashlib
 import io
+import json
 import re
 import zipfile
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +72,19 @@ class FakeArchive:
         self.entries[dataset].append(
             ManifestEntry(
                 dataset, symbol, period, url, len(content), md5, utc(2026, 11, 2), url + ".CHECKSUM"
+            )
+        )
+
+    def put_trades(self, symbol: str, day: str, rows: list[str]) -> None:
+        name = f"{symbol}-trades-{day}.zip"
+        url = f"{FILES}daily/trades/{symbol}/{name}"
+        content = _zip(name, ["id,price,qty,quote_qty,time,is_buyer_maker", *rows])
+        self.files[url] = content
+        self.files[url + ".CHECKSUM"] = f"{hashlib.sha256(content).hexdigest()}  {name}\n".encode()
+        md5 = hashlib.md5(content, usedforsecurity=False).hexdigest()
+        self.entries.setdefault("t", []).append(
+            ManifestEntry(
+                "t", symbol, day, url, len(content), md5, utc(2026, 11, 2), url + ".CHECKSUM"
             )
         )
 
@@ -302,3 +317,53 @@ def test_a_bybit_file_that_changed_since_it_was_described_stops_the_build(
     with pytest.raises(u1.U1Error, match="bytes, the manifest lists"):
         u1.build("bybit", OCTOBER, BYBIT_CFG, remote, LIMITS, tmp_path / "w", row_group_rows=2)
     assert remote.list("canonical") == {}
+
+
+CROSSCHECK_CFG: dict[str, Any] = {
+    **CFG,
+    "crosscheck": {"trades": "t", "klines": "d", "sample": 5, "max_differing_share": 0.0},
+}
+
+
+def _kline_of(ms: int, trades: list[tuple[str, str, bool]]) -> str:
+    """The kline a list of (price, qty, taker buys) trades in one minute should give."""
+    prices = [Decimal(p) for p, _, _ in trades]
+    qty = sum(Decimal(q) for _, q, _ in trades)
+    quote = sum(Decimal(p) * Decimal(q) for p, q, _ in trades)
+    buy = sum(Decimal(q) for _, q, b in trades if b)
+    buy_quote = sum(Decimal(p) * Decimal(q) for p, q, b in trades if b)
+    return (
+        f"{ms},{prices[0]},{max(prices)},{min(prices)},{prices[-1]},{qty},{ms + 59_999},"
+        f"{quote},{len(trades)},{buy},{buy_quote},0"
+    )
+
+
+def test_klines_that_match_their_trades_pass_the_cross_check(
+    fake: FakeArchive, tmp_path: Path
+) -> None:
+    minute = [("1.50", "2", True), ("1.25", "1", False)]
+    fake.put("d", "AAAUSDT", "2026-10-01", [_kline_of(OCT_MS, minute)])
+    fake.put_trades("AAAUSDT", "2026-10-01", [
+        f"1,1.50,2,3.0,{OCT_MS + 1},false", f"2,1.25,1,1.25,{OCT_MS + 2},true",
+    ])  # fmt: skip
+    remote = DirectoryRemote(tmp_path / "remote")
+    fake.publish(remote, utc(2026, 11, 9))
+    cc = u1.crosscheck(CROSSCHECK_CFG, remote, LIMITS, tmp_path / "w", utc(2026, 11, 10), seed=1)
+    assert (cc.days, cc.minutes, cc.passed) == (1, 1, True)
+    assert cc.report == "quality/u1-crosscheck/20261110T000000Z.json"
+    report = json.loads((remote.root / cc.report).read_text())
+    assert report["totals"]["differing"] == 0
+    assert report["days"][0]["symbol"] == "AAAUSDT"
+
+
+def test_klines_that_differ_from_their_trades_fail_the_cross_check(
+    fake: FakeArchive, tmp_path: Path
+) -> None:
+    fake.put("d", "AAAUSDT", "2026-10-01", [_kline_of(OCT_MS, [("1.50", "2", True)])])
+    fake.put_trades("AAAUSDT", "2026-10-01", [f"1,1.50,3,4.5,{OCT_MS + 1},false"])  # 3, not 2
+    remote = DirectoryRemote(tmp_path / "remote")
+    fake.publish(remote, utc(2026, 11, 9))
+    cc = u1.crosscheck(CROSSCHECK_CFG, remote, LIMITS, tmp_path / "w", utc(2026, 11, 10), seed=1)
+    assert not cc.passed
+    report = json.loads((remote.root / cc.report).read_text())
+    assert (report["totals"]["volume"], report["share_differing"]) == (1, 1.0)

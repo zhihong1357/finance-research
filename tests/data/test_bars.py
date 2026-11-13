@@ -128,3 +128,35 @@ def test_a_price_times_size_beyond_64_bits_is_refused() -> None:
         bars.from_trades(
             "bybit", "AAAUSDT", pa.array([0], pa.int64()), big, big, pa.array([True]), PUBLISHED
         )
+
+
+def test_identical_bars_agree_and_quiet_minutes_need_no_bar() -> None:
+    quiet = {
+        "volume": ["3.000", "0"],
+        "quote_volume": ["302.5", "0"],
+        "taker_buy_volume": ["2.000", "0"],
+        "taker_buy_quote_volume": ["201.0", "0"],
+    }
+    klines = _bars(trades=[7, 0], overrides=quiet)
+    trades_only = bars.PitTable(bars.NAME, bars.KEYS, klines.table.slice(0, 1))
+    counts = bars.compare(klines, trades_only)
+    assert counts["minutes"] == 1  # the quiet minute is not counted
+    assert {k: v for k, v in counts.items() if k != "minutes"} == dict.fromkeys(
+        ["missing", "extra", *bars.COMPARED, "differing"], 0
+    )
+
+
+def test_differences_are_counted_by_field_and_minute() -> None:
+    reference = _bars()
+    other = _bars(trades=[7, 3], overrides={"close": ["101.50", "100.4"], "volume": ["3", "0.5"]})
+    counts = bars.compare(reference, other)
+    # close: 101.5 = 101.50 (same value, other scale), 100.5 vs 100.4 differs; volume is equal
+    assert (counts["close"], counts["volume"], counts["trades"], counts["differing"]) == (
+        1,
+        0,
+        1,
+        1,
+    )
+    alone = bars.PitTable(bars.NAME, bars.KEYS, reference.table.slice(0, 1))
+    assert bars.compare(reference, alone)["missing"] == 1
+    assert bars.compare(alone, reference)["extra"] == 1

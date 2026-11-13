@@ -226,3 +226,66 @@ def problems(t: PitTable) -> list[str]:
             first = table.filter(mask).slice(0, 1).to_pylist()[0]
             found.append(f"{label}: {count} bar(s), first {first['symbol']} {first[EVENT_TIME]}")
     return found
+
+
+COMPARED = (*DECIMALS, TRADES)
+
+
+def _same(a: Values, sa: Values, b: Values, sb: Values) -> Values:
+    """Where two fixed-point columns hold the same value, whatever their scales."""
+    top = pc.max_element_wise(sa, sb)
+    ten = pa.scalar(10, pa.int64())
+    left = pc.multiply_checked(a, pc.power(ten, pc.cast(pc.subtract(top, sa), pa.int64())))
+    right = pc.multiply_checked(b, pc.power(ten, pc.cast(pc.subtract(top, sb), pa.int64())))
+    return pc.equal(left, right)
+
+
+def compare(reference: PitTable, other: PitTable) -> dict[str, int]:
+    """How two bar tables of one contract disagree, minute by minute and field by field.
+
+    ``reference`` (Binance's klines) also lists minutes without trades, with a
+    trade count of 0; a table built from trades has no row for them, so those
+    count as agreeing. The counts: ``minutes`` with trades in either table,
+    ``missing`` (trades in ``reference``, no bar in ``other``), ``extra`` (a bar
+    in ``other``, no trades in ``reference``), for each field the number of
+    minutes in both tables where its exact values differ, and ``differing``,
+    the minutes in both where any field differs.
+    """
+    ref = reference.table.filter(pc.greater(reference.table.column(TRADES), _ZERO))
+    oth = other.table
+
+    def side(t: pa.Table, tag: str) -> pa.Table:
+        cols: dict[str, Any] = {
+            EVENT_TIME: t.column(EVENT_TIME),
+            f"{tag}present": pa.array([True] * t.num_rows),
+        }
+        for name in DECIMALS:
+            cols[f"{tag}{name}"] = t.column(name)
+            cols[f"{tag}{name}_s"] = t.column(scale_column(name))
+        cols[f"{tag}{TRADES}"] = t.column(TRADES)
+        return pa.table(cols)
+
+    joined = side(ref, "r_").join(side(oth, "o_"), keys=EVENT_TIME, join_type="full outer")
+    in_ref = pc.fill_null(joined.column("r_present"), pa.scalar(False))
+    in_oth = pc.fill_null(joined.column("o_present"), pa.scalar(False))
+    both = joined.filter(pc.and_(in_ref, in_oth))
+    counts = {
+        "minutes": int(joined.num_rows),
+        "missing": int(
+            pc.sum(pc.cast(pc.and_(in_ref, pc.invert(in_oth)), pa.int64())).as_py() or 0
+        ),
+        "extra": int(pc.sum(pc.cast(pc.and_(in_oth, pc.invert(in_ref)), pa.int64())).as_py() or 0),
+    }
+    any_field = pc.not_equal(both.column(f"r_{TRADES}"), both.column(f"o_{TRADES}"))
+    counts[TRADES] = int(pc.sum(pc.cast(any_field, pa.int64())).as_py() or 0)
+    for name in DECIMALS:
+        differs = pc.invert(
+            _same(
+                both.column(f"r_{name}"), both.column(f"r_{name}_s"),
+                both.column(f"o_{name}"), both.column(f"o_{name}_s"),
+            )
+        )  # fmt: skip
+        counts[name] = int(pc.sum(pc.cast(differs, pa.int64())).as_py() or 0)
+        any_field = pc.or_(any_field, differs)
+    counts["differing"] = int(pc.sum(pc.cast(any_field, pa.int64())).as_py() or 0)
+    return counts
