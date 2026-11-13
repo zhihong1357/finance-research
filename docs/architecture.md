@@ -385,9 +385,11 @@ flowchart LR
 | 定时工作流 | 公开仓库 60 天没有任何活动，定时工作流被自动停用 | [GitHub 文档](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows) |
 | Binance 归档的发布时间与校验和 | 逐日文件约晚 1 到 2 天出现（11-13 05:00 UTC 时 11-11 已有、11-12 还没有）；每个文件配一个 `.CHECKSUM`，内容是 SHA-256 | 2026-11-13 实测 |
 | Bybit 公开归档 `public.bybit.com/trading/` | 2,137 个目录，其中 1,144 个 USDT 合约；含已下架品种（SRMUSDT、LUNAUSDT、FTTUSDT、MATICUSDT 等）；BTCUSDT 从 2020-03-25 起；没有官方校验和文件，只有 HTTP 的 ETag；BTCUSDT 单日约 65 MB | 2026-11-13 实测 |
-| Bybit 归档的 ETag 与目录 | ETag 是文件的 MD5：抽查的 9 个单次上传的文件全部一致；分段上传的文件 ETag 带短横（例如 `-2`），不是 MD5。品种名被重新使用时，旧合约的文件移到改名的目录（ANTOLDUSDT 里是 952 个 ANTUSDT 的文件，DATAOLD01USDT 里是 527 个 DATAUSDT 的文件）；4 个到期合约有重发的 `_v2` 文件；较新的文件多一列 RPI。847 个到期合约和事件合约的目录名带短横或下划线（`BTC-01DEC23`、`WC_..._USDT-28JUN26`），共约 3.1 万个文件 | 2026-11-14 实测 |
+| Bybit 归档的 ETag 与目录 | ETag 是文件的 MD5：单次上传的文件抽查 16 个（云端沙盒 8 个、GitHub Actions 上 8 个），全部一致；分段上传的文件 ETag 带短横（例如 `-2`），不是 MD5。品种名被重新使用时，旧合约的文件移到改名的目录（ANTOLDUSDT 里是 952 个 ANTUSDT 的文件，DATAOLD01USDT 里是 527 个 DATAUSDT 的文件）；4 个到期合约有重发的 `_v2` 文件；较新的文件多一列 RPI。847 个到期合约和事件合约的目录名带短横或下划线（`BTC-01DEC23`、`WC_..._USDT-28JUN26`），共约 3.1 万个文件 | 2026-11-14 实测 |
 | 两家归档的规模（列目录所见） | Binance U 本位合约的逐日文件：逐笔成交 1,067 个品种目录、696,107 个文件、2.17 TB（BTCUSDT 从 2019-09-08 起）；归并成交 695,929 个、1.17 TB（从 2019-12-31 起）；1 分钟 K 线 766,113 个、34.1 GB；1 分钟标记价格 781,056 个、19.4 GB；持仓量 666,000 个、7.0 GB（从 2020-09-01 起）。资金费率只有月度文件，23,802 个。Bybit 逐笔成交 796,246 个文件。16 个线程列一个数据集约 2 分钟，清单全量约 16 MB | 2026-11-13 实测 |
 | Binance 的 1 分钟 K 线 | 列是 open_time、open、high、low、close、volume、close_time、quote_volume、count、taker_buy_volume、taker_buy_quote_volume、ignore：带成交笔数、主动买入量和成交额，一天 1,440 行 | 2026-11-14 实测（BTCUSDT 2026-11-11 的文件） |
+| 归档清单在 GitHub Actions 上运行 | 7 个数据集全部成功，整次运行约 8 分钟（最多 3 个任务并行）。单个任务含安装：Binance 逐日数据集 3 分 16 秒到 3 分 51 秒，资金费率 50 秒，Bybit 1 分 19 秒（第二次 36 秒）。抽查 68 个文件全部与清单一致。Binance 逐笔成交的大文件是分段上传的，ETag 带 `-2`、`-3`，不是 MD5，只靠官方 SHA-256 核对。修好 Bybit 的文件名规则后重跑，增量恰好新增 31,303 个、变化 0、消失 0，与两次列目录之差一致 | 2026-11-13 实测，[第 43490508874 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43490508874)、[第 43493529741 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43493529741) |
+| Binance 归并成交的合并规则 | U 本位合约：100 毫秒内、同一价格、同一主动方的市场成交合并成一条，记首尾成交编号；保险基金和自动减仓的成交不在其中；RPI 订单的成交合并在内、不加标记 | [Binance 文档](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Compressed-Aggregate-Trades-List)，2026-11-13 读取 |
 | 从 GitHub Actions 读写 Hugging Face | 1 KB、1 MB、32 MB 各 3 轮，9 次写入读回全部核对一致，46 次调用 0 次失败。32 MB：上传中位数 7.0 秒（约 4.8 MB/s），下载 10.9 秒（约 3.1 MB/s）。小文件每次提交约 3 秒、每次读取约 2 秒，几乎全是固定开销，所以必须攒批 | 2026-11-13 实测，[存储自检第 43454712772 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43454712772) |
 | 快照数据源的大小 | Deribit 每次 6 个请求共约 3.1 MB（USDC 期权约 2 MB、3,200 个合约；BTC 期权约 980 个）；Hyperliquid 每次约 72 KB、235 个永续。从 GitHub Actions 访问 Deribit、OKX、Hyperliquid 都可行（旧仓库的录制） | 2026-11-14 实测 |
 | 中断通知与恢复 | 演练中，故意失败的数据源超过上限后，下一次监控开出问题（[#16](https://github.com/zhihong1357/finance-research/issues/16)，由 github-actions 机器人开）；恢复后下一次监控留言并关闭。同一次采集里另一个数据源照常入库。用 `GITHUB_TOKEN` 请求启用定时任务的调用成功 | 2026-11-13 实测 |
@@ -400,7 +402,7 @@ flowchart LR
 - 用接口启用定时工作流能否重置 60 天的计时。GitHub 文档没有说明，一个步骤之内也无法实测（要等 60 天）。对策是不依赖它：监控在 45 天时开问题提醒所有者，合并任意拉取请求即可（2.2）。
 - 费城联储实时数据集、美国劳工统计局等原始发布机构、CFTC 的使用条款（2.6）。
 - Bybit 公开归档的专门条款。只找到 Bybit 接口条款，其中禁止把接口用于商业利用（2.4）。
-- Binance 和 Bybit 的实时接口能否从 GitHub Actions 访问。运行器在美国，两家对美国地址可能有限制；它们的历史主要靠公开归档（2.4），实时快照需要时再实测。
+- Binance 和 Bybit 的实时接口能否从 GitHub Actions 访问。运行器在美国，两家对美国地址可能有限制；实时快照需要时再实测。两家的公开归档从 GitHub Actions 都能访问（2.4 实测，见 7.3），历史数据不受影响。
 
 ### 7.5 数据使用条款
 
