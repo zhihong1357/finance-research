@@ -19,7 +19,7 @@ All three time columns are ``timestamp[us, tz=UTC]`` and never null.
 
 import io
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cached_property
@@ -139,19 +139,48 @@ class Snapshot:
 
 def versions_as_of(t: PitTable, at: datetime) -> pa.Table:
     """For each observation, the latest version with ``available_at <= at``, in key/time order."""
+    return latest_versions(t.table, t.keys, at)
+
+
+def latest_versions(
+    table: pa.Table, keys: Sequence[str], at: datetime, *, single_version: bool = False
+) -> pa.Table:
+    """``versions_as_of`` on a bare table with the point-in-time columns.
+
+    ``single_version`` says every observation has one version only (archived
+    market data is never revised), which skips the costly search for the latest.
+    """
     at = ensure_utc(at)
-    known = t.table.filter(
-        pc.less_equal(t.table.column(AVAILABLE_AT), pa.scalar(at, type=TIME_TYPE))
-    )
-    ids = [*t.keys, EVENT_TIME]
-    if known.num_rows == 0:
-        return known
+    known = table.filter(pc.less_equal(table.column(AVAILABLE_AT), pa.scalar(at, type=TIME_TYPE)))
+    ids = [*keys, EVENT_TIME]
+    if known.num_rows == 0 or single_version:
+        return known.sort_by([(c, "ascending") for c in ids]).combine_chunks()
     latest = (
         known.group_by(ids).aggregate([(AVAILABLE_AT, "max")]).rename_columns([*ids, AVAILABLE_AT])
     )
     out = known.join(latest, keys=[*ids, AVAILABLE_AT], join_type="inner")
-    out = out.select(t.table.column_names)
+    out = out.select(table.column_names)
     return out.sort_by([(c, "ascending") for c in ids]).combine_chunks()
+
+
+def restrict(
+    table: pa.Table,
+    keys: Sequence[str],
+    start: datetime | None,
+    where: Mapping[str, Collection[str]] | None,
+    columns: Sequence[str] | None,
+) -> pa.Table:
+    """Rows from ``start`` on whose keys take the listed values; ``columns`` plus keys and times."""
+    if start is not None:
+        since = pa.scalar(ensure_utc(start), type=TIME_TYPE)
+        table = table.filter(pc.greater_equal(table.column(EVENT_TIME), since))
+    for key, values in (where or {}).items():
+        if key not in keys:
+            raise KeyError(f"{key!r} is not a key (keys: {tuple(keys)})")
+        table = table.filter(pc.is_in(table.column(key), value_set=pa.array(sorted(values))))
+    if columns is not None:
+        table = table.select([*keys, *TIME_COLUMNS, *(c for c in columns if c not in keys)])
+    return table
 
 
 def to_parquet(t: PitTable, path: Path) -> None:

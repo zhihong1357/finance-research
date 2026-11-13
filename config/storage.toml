@@ -14,3 +14,6 @@ retry_wait_seconds = 15
 prefix = "_selftest"            # 自检只写在这个文件夹下，结束后删除
 sizes_bytes = [1024, 1048576, 33554432]   # 1 KB、1 MB、32 MB
 rounds = 3
+
+[canonical]
+row_group_rows = 131072         # 规范层 Parquet 的行组大小：只查几个品种时，按行组统计跳过其余部分
