@@ -1,4 +1,4 @@
-# 持续集成：每次推送到 main、每个拉取请求都运行。四项检查全部通过，改动才算合格。
+# 持续集成：每次推送到 main、每个拉取请求都运行。全部检查通过，改动才算合格。
 # 第三方 action 固定到提交号，防止标签被改指向别的代码。
 name: CI
 
@@ -21,6 +21,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0  # 注册表的历史比对需要上一个版本
 
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
@@ -40,3 +42,11 @@ jobs:
 
       - name: 测试
         run: uv run pytest
+
+      - name: 注册表
+        run: uv run finresearch registry check
+
+      - name: 注册表历史只增不改
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: uv run finresearch registry check-append-only --base "$BASE"
