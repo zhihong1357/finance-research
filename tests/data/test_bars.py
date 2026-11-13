@@ -5,7 +5,7 @@ import pytest
 
 from finresearch.core.time import utc
 from finresearch.data import bars
-from finresearch.data.fixed import Fixed, parse
+from finresearch.data.fixed import Fixed, FixedPointError, parse
 from finresearch.data.table import PitTable, TableError
 
 T0 = utc(2026, 11, 11)
@@ -112,3 +112,19 @@ def test_prices_at_different_scales_compare_exactly() -> None:
     )
     (found,) = bars.problems(_bars(overrides={"high": ["102", "102"], "open": ["102.01", "101.5"]}))
     assert found.startswith("high below open")
+
+
+def test_trades_out_of_time_order_are_refused() -> None:
+    with pytest.raises(bars.BarError, match="not in time order"):
+        bars.from_trades(
+            "bybit", "AAAUSDT", pa.array([2, 1], pa.int64()), parse(["1", "1"]), parse(["1", "1"]),
+            pa.array([True, False]), PUBLISHED,
+        )  # fmt: skip
+
+
+def test_a_price_times_size_beyond_64_bits_is_refused() -> None:
+    big = parse(["4000000000"])
+    with pytest.raises(FixedPointError, match="price times size"):
+        bars.from_trades(
+            "bybit", "AAAUSDT", pa.array([0], pa.int64()), big, big, pa.array([True]), PUBLISHED
+        )

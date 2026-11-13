@@ -58,7 +58,7 @@ def test_entries_keep_the_folder_and_read_the_day_from_the_name(server: FakeServ
     ],
 )
 def test_the_symbol_is_whatever_comes_before_the_day(name: str, symbol: str, day: str) -> None:
-    m = b._FILE.fullmatch(name)  # pyright: ignore[reportPrivateUsage]
+    m = b.FILE_NAME.fullmatch(name)
     assert m is not None
     assert (m["symbol"], m["day"]) == (symbol, day)
 

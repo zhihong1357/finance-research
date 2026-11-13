@@ -30,6 +30,8 @@ MANTISSA_TYPE = pa.int64()
 SCALE_TYPE = pa.int8()
 # A plain decimal: optional minus sign, digits, optionally a point and more digits.
 _DECIMAL = r"^(?P<i>-?\d+)(?:\.(?P<f>\d*))?$"
+# The same with a power of ten, as a float printed by Python looks: 1.0985e+06.
+_SCIENTIFIC = r"^-?\d+(?:\.\d*)?[eE][+-]?\d+$"
 
 
 class FixedPointError(ValueError):
@@ -52,17 +54,32 @@ class Fixed:
         return [Decimal(m).scaleb(-self.scale) for m in values]
 
 
-def parse(text: Column | Sequence[str]) -> Fixed:
+def _expand(arr: Column) -> Column:
+    """Write numbers in scientific notation out in full (exactly: ``1.0985e+06`` is ``1098500``)."""
+    sci = pc.match_substring_regex(arr, _SCIENTIFIC)
+    if not pc.any(sci).as_py():
+        return arr
+    full = [format(Decimal(str(v)), "f") for v in pc.filter(arr, sci).to_pylist()]
+    return cast(Column, pc.replace_with_mask(arr, sci, pa.array(full, type=pa.string())))
+
+
+def parse(text: Column | Sequence[str], *, exponents: bool = False) -> Fixed:
     """Decimal text to mantissas at the largest number of decimal places in the column.
 
     Every value keeps all of its digits: ``["1.5", "2", "0.25"]`` becomes
     ``[150, 200, 25]`` with scale 2. Raises ``FixedPointError`` on empty, null or
-    non-decimal text (``1e5``, ``NaN``) and on mantissas beyond 64 bits.
+    non-decimal text (``NaN``; ``1e5`` too unless ``exponents``) and on mantissas
+    beyond 64 bits. ``exponents`` accepts scientific notation, for sources that
+    print some numbers as Python prints floats; the text is read exactly as
+    written.
     """
     arr = text if isinstance(text, pa.Array) else pa.array(list(text), type=pa.string())
     if len(arr) == 0:
         return Fixed(pa.array([], type=MANTISSA_TYPE), 0)
-    parts = pc.extract_regex(arr.cast(pa.string()), _DECIMAL)
+    arr = arr.cast(pa.string())
+    if exponents and arr.null_count == 0:
+        arr = _expand(arr)
+    parts = pc.extract_regex(arr, _DECIMAL)
     bad = pc.is_null(parts)
     if pc.any(bad).as_py():
         first = pc.filter(arr, bad)[0].as_py()

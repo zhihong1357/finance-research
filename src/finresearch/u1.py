@@ -43,7 +43,7 @@ from finresearch.data.manifest import (
 from finresearch.data.partitioned import PartitionCard, PartitionWriter, month_dir
 from finresearch.data.store import Limits, PushReport, Remote, local_files, pull, push
 from finresearch.data.table import PitTable
-from finresearch.sources import binance_archive, binance_klines
+from finresearch.sources import binance_archive, binance_klines, bybit_archive, bybit_trades
 
 
 class U1Error(RuntimeError):
@@ -130,34 +130,44 @@ class Plan:
     stale: list[str] = field(default_factory=lambda: list[str]())  # built, but inputs changed since
 
 
-def plan_binance(cfg: Mapping[str, Any], remote: Remote, limits: Limits, work: Path) -> Plan:
-    """Months whose Binance partition is not in the store yet; and built ones that are stale."""
-    b = cfg["binance"]
+EXCHANGES = ("binance", "bybit")
+
+
+def _manifests(
+    ex: Mapping[str, Any], remote: Remote, limits: Limits, work: Path
+) -> tuple[list[ManifestEntry], list[ManifestEntry], datetime]:
+    """Monthly entries (empty where the archive has none), daily entries, and the older listing."""
+    daily = load_manifest(str(ex["daily"]), remote, limits, work)
+    if "monthly" not in ex:
+        return [], daily.entries, daily.listed_at
+    monthly = load_manifest(str(ex["monthly"]), remote, limits, work)
+    return monthly.entries, daily.entries, min(monthly.listed_at, daily.listed_at)
+
+
+def plan(exchange: str, cfg: Mapping[str, Any], remote: Remote, limits: Limits, work: Path) -> Plan:
+    """Months whose ``exchange`` partition is not in the store yet; built ones gone stale."""
+    ex = cfg[exchange]
     fmt = int(cfg["bars"]["format"])
-    monthly = load_manifest(str(b["monthly"]), remote, limits, work)
-    daily = load_manifest(str(b["daily"]), remote, limits, work)
-    universe = str(b["universe"])
-    listed = min(monthly.listed_at, daily.listed_at)
-    plan = Plan([])
-    entries = [*monthly.entries, *daily.entries]
-    for m in buildable_months(entries, universe, listed, int(b["settle_days"])):
+    monthly, daily, listed = _manifests(ex, remote, limits, work)
+    universe = str(ex["universe"])
+    result = Plan([])
+    for m in buildable_months([*monthly, *daily], universe, listed, int(ex["settle_days"])):
         folder = month_dir(bars.NAME, fmt, m)
-        card_path = f"{folder}/{b['part']}.json"
+        card_path = f"{folder}/{ex['part']}.json"
         if card_path not in remote.list(folder):
-            plan.months.append(m)
+            result.months.append(m)
             continue
         card = PartitionCard.from_json(remote.read(card_path).decode("utf-8"))
-        current = select(monthly.entries, daily.entries, universe, m)
-        if sorted(card.inputs) != current.urls:
-            plan.stale.append(f"{m:%Y-%m}: the archive now has other files than the partition")
-    return plan
+        if sorted(card.inputs) != select(monthly, daily, universe, m).urls:
+            result.stale.append(f"{m:%Y-%m}: the archive now has other files than the partition")
+    return result
 
 
 @dataclass
 class BuildResult:
     month: date
     card: PartitionCard
-    from_daily: list[str]  # symbols built from daily files
+    from_daily: list[str]  # symbols built from daily files where the archive has monthly ones
     pushed: PushReport
 
 
@@ -166,23 +176,44 @@ def _batches[T](items: Sequence[T], size: int) -> Iterator[Sequence[T]]:
         yield items[i : i + size]
 
 
-def _symbol_bars(entries: Sequence[ManifestEntry]) -> tuple[PitTable, dict[str, str]]:
-    """Download, check and parse one symbol's files for the month."""
+def _file_bars(exchange: str, e: ManifestEntry) -> tuple[PitTable, str]:
+    """Download, check and parse one archive file; return its bars and its SHA-256.
+
+    ``ingested_at`` is the file's publication time: from the manifest where the
+    listing gives it (Binance), otherwise from the download's Last-Modified.
+    """
+    if exchange == "binance":
+        content, check = archive.download(e, binance_archive)  # checks the official SHA-256
+    else:
+        # The trade parser reads every row anyway and checks symbol and day as it goes.
+        content, check = archive.download(e, bybit_archive, content=False)
+    if not check.ok:
+        raise U1Error(f"{e.url}: {'; '.join(check.problems)}")
+    published = e.last_modified or check.last_modified
+    if published is None:
+        raise U1Error(f"{e.url}: neither the manifest nor the server gives a publication time")
+    if exchange == "binance":
+        table = binance_klines.parse_klines(binance_klines.csv_from_zip(content, e), e, published)
+    else:
+        table = bybit_trades.parse_trades(content, e, published)
+    return table, check.sha256
+
+
+def _symbol_bars(
+    exchange: str, entries: Sequence[ManifestEntry]
+) -> tuple[PitTable, dict[str, str]]:
+    """One symbol's bars for the month, and the files they came from."""
     tables: list[PitTable] = []
     inputs: dict[str, str] = {}
     for e in entries:
-        content, check = archive.download(e, binance_archive)
-        if not check.ok:
-            raise U1Error(f"{e.url}: {'; '.join(check.problems)}")
-        if e.last_modified is None:
-            raise U1Error(f"{e.url}: the manifest has no publication time")
-        text = binance_klines.csv_from_zip(content, e)
-        tables.append(binance_klines.parse_klines(text, e, e.last_modified))
-        inputs[e.url] = check.sha256
+        table, sha = _file_bars(exchange, e)
+        tables.append(table)
+        inputs[e.url] = sha
     return (tables[0] if len(tables) == 1 else bars.concat(tables)), inputs
 
 
-def build_binance(
+def build(
+    exchange: str,
     month: date,
     cfg: Mapping[str, Any],
     remote: Remote,
@@ -190,33 +221,35 @@ def build_binance(
     work: Path,
     row_group_rows: int,
 ) -> BuildResult:
-    """Build and push the Binance partition of ``month``."""
-    b = cfg["binance"]
+    """Build and push the partition of ``month`` for ``exchange``."""
+    ex = cfg[exchange]
     fmt = int(cfg["bars"]["format"])
     folder = month_dir(bars.NAME, fmt, month)
-    if f"{folder}/{b['part']}.json" in remote.list(folder):
-        raise U1Error(f"{folder}/{b['part']} is already in the store; it is never rebuilt")
-    monthly = load_manifest(str(b["monthly"]), remote, limits, work / "manifests")
-    daily = load_manifest(str(b["daily"]), remote, limits, work / "manifests")
-    chosen = select(monthly.entries, daily.entries, str(b["universe"]), month)
+    if f"{folder}/{ex['part']}.json" in remote.list(folder):
+        raise U1Error(f"{folder}/{ex['part']} is already in the store; it is never rebuilt")
+    monthly, daily, _ = _manifests(ex, remote, limits, work / "manifests")
+    chosen = select(monthly, daily, str(ex["universe"]), month)
     if not chosen.files:
         raise U1Error(f"no {month:%Y-%m} files for the universe in the manifests")
     out = work / "out"
-    writer = PartitionWriter(out, bars.NAME, bars.KEYS, fmt, month, str(b["part"]), row_group_rows)
+    writer = PartitionWriter(out, bars.NAME, bars.KEYS, fmt, month, str(ex["part"]), row_group_rows)
     inputs: dict[str, str] = {}
     notes: list[str] = []
-    symbols = list(chosen.files)
 
     def one(symbol: str) -> tuple[PitTable, dict[str, str]]:
-        return _symbol_bars(chosen.files[symbol])
+        return _symbol_bars(exchange, chosen.files[symbol])
 
-    with ThreadPoolExecutor(max_workers=int(b["workers"])) as pool:
-        for batch in _batches(symbols, int(b["batch"])):
+    with ThreadPoolExecutor(max_workers=int(ex["workers"])) as pool:
+        for batch in _batches(list(chosen.files), int(ex["batch"])):
             for table, used in pool.map(one, batch):
                 writer.add(table)
                 inputs.update(used)
                 notes.extend(bars.problems(table))
     card = writer.close(inputs, notes)
-    from_daily = [s for s, es in chosen.files.items() if es[0].period != f"{month:%Y-%m}"]
-    pushed = push(out, remote, folder, limits, f"u1.bars_1m {month:%Y-%m} {b['part']}")
+    from_daily = (
+        [s for s, es in chosen.files.items() if es[0].period != f"{month:%Y-%m}"]
+        if "monthly" in ex
+        else []
+    )
+    pushed = push(out, remote, folder, limits, f"u1.bars_1m {month:%Y-%m} {ex['part']}")
     return BuildResult(month, card, from_daily, pushed)

@@ -74,3 +74,13 @@ def test_text_round_trips_exactly(values: list[Decimal]) -> None:
     text = [format(v, "f") for v in values]
     f = parse(text)
     assert f.decimals() == [Decimal(t) for t in text]
+
+
+def test_scientific_notation_only_when_asked_and_exactly() -> None:
+    with pytest.raises(FixedPointError, match="not a plain decimal"):
+        parse(["1.0985e+06"])
+    f = parse(["1.0985e+06", "1.2e-05", "2.5", "3E2"], exponents=True)
+    assert f.decimals() == [Decimal("1098500"), Decimal("0.000012"), Decimal("2.5"), Decimal("300")]
+    assert f.scale == 6
+    with pytest.raises(FixedPointError, match="not a plain decimal"):
+        parse(["1e", "2"], exponents=True)

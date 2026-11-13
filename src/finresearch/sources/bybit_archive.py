@@ -32,7 +32,7 @@ from finresearch.sources import http
 BASE = "https://public.bybit.com/"
 OFFICIAL_CHECKSUMS: bool = False  # only the ETag, which is the MD5 for single-part uploads
 _LINK = re.compile(r'<a href="([^"?#]+)">')
-_FILE = re.compile(r"(?P<symbol>[^/]+?)(?P<day>\d{4}-\d{2}-\d{2})(?:_v\d+)?\.csv\.gz")
+FILE_NAME = re.compile(r"(?P<symbol>[^/]+?)(?P<day>\d{4}-\d{2}-\d{2})(?:_v\d+)?\.csv\.gz")
 
 
 def _links(url: str) -> list[str]:
@@ -53,7 +53,7 @@ def entries(
     found: list[ManifestEntry] = []
     skipped: list[str] = []
     for link in _links(folder):
-        m = _FILE.fullmatch(link)
+        m = FILE_NAME.fullmatch(link)
         if m is None:
             skipped.append(folder + link)
         else:
@@ -76,7 +76,7 @@ def describe(entry: ManifestEntry) -> ManifestEntry:
 def check(entry: ManifestEntry, content: bytes) -> list[str]:
     """Problems with a downloaded day file: it must be a gzip CSV of the trades of the
     symbol in its name on that UTC day (there is no checksum file, so the content is the check)."""
-    m = _FILE.fullmatch(entry.url.rsplit("/", 1)[-1])
+    m = FILE_NAME.fullmatch(entry.url.rsplit("/", 1)[-1])
     if m is None:
         return [f"not a day file name: {entry.url}"]
     traded = m["symbol"]

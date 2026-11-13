@@ -35,3 +35,23 @@ def read(
         )
     except pa.ArrowInvalid as exc:
         raise CsvError(str(exc)) from exc
+
+
+def read_named(text: bytes, wanted: Sequence[str]) -> pa.Table:
+    """The ``wanted`` columns of a CSV whose first line names its columns, all as text.
+
+    For sources whose column set changes over time (Bybit added a column in
+    2025): columns are found by name, and a missing one is an error.
+    """
+    try:
+        table = csv.read_csv(
+            io.BytesIO(text),
+            convert_options=csv.ConvertOptions(
+                include_columns=list(wanted),
+                column_types=dict.fromkeys(wanted, pa.string()),
+                strings_can_be_null=False,
+            ),
+        )
+    except (pa.ArrowInvalid, KeyError) as exc:
+        raise CsvError(str(exc)) from exc
+    return table

@@ -1,6 +1,7 @@
 """Building U1 bars from a fake Binance archive: hand-written klines, checksums and
 manifests, and a local stand-in for the remote store."""
 
+import gzip
 import hashlib
 import io
 import re
@@ -125,17 +126,17 @@ def test_a_listing_too_soon_after_the_month_plans_nothing(
     _october(fake)
     remote = DirectoryRemote(tmp_path / "remote")
     fake.publish(remote, utc(2026, 11, 3))
-    assert u1.plan_binance(CFG, remote, LIMITS, tmp_path / "p").months == []
+    assert u1.plan("binance", CFG, remote, LIMITS, tmp_path / "p").months == []
 
 
 def test_a_month_becomes_one_partition_with_its_inputs(fake: FakeArchive, tmp_path: Path) -> None:
     _october(fake)
     remote = DirectoryRemote(tmp_path / "remote")
     fake.publish(remote, utc(2026, 11, 9))
-    plan = u1.plan_binance(CFG, remote, LIMITS, tmp_path / "p1")
+    plan = u1.plan("binance", CFG, remote, LIMITS, tmp_path / "p1")
     assert (plan.months, plan.stale) == ([OCTOBER], [])
 
-    result = u1.build_binance(OCTOBER, CFG, remote, LIMITS, tmp_path / "b1", row_group_rows=2)
+    result = u1.build("binance", OCTOBER, CFG, remote, LIMITS, tmp_path / "b1", row_group_rows=2)
     assert result.from_daily == ["BBBUSDT"]
     card = result.card
     assert (card.name, card.rows, card.notes) == ("u1.bars_1m/v1/2026-10/binance", 4, [])
@@ -154,14 +155,14 @@ def test_a_month_becomes_one_partition_with_its_inputs(fake: FakeArchive, tmp_pa
     assert w.table.column("event_time").to_pylist() == [utc(2026, 10, 1, 0, 2), utc(2026, 10, 2)]
     assert w.table.column("ingested_at").to_pylist() == [utc(2026, 11, 2)] * 2
 
-    plan = u1.plan_binance(CFG, remote, LIMITS, tmp_path / "p2")
+    plan = u1.plan("binance", CFG, remote, LIMITS, tmp_path / "p2")
     assert (plan.months, plan.stale) == ([], [])
     with pytest.raises(u1.U1Error, match="never rebuilt"):
-        u1.build_binance(OCTOBER, CFG, remote, LIMITS, tmp_path / "b2", row_group_rows=2)
+        u1.build("binance", OCTOBER, CFG, remote, LIMITS, tmp_path / "b2", row_group_rows=2)
 
     fake.put("d", "EEEUSDT", "2026-10-31", [_kline(OCT_MS + 30 * DAY_MS)])  # appeared later
     fake.publish(remote, utc(2026, 11, 16))
-    plan = u1.plan_binance(CFG, remote, LIMITS, tmp_path / "p3")
+    plan = u1.plan("binance", CFG, remote, LIMITS, tmp_path / "p3")
     assert plan.stale == ["2026-10: the archive now has other files than the partition"]
 
 
@@ -172,13 +173,13 @@ def test_a_file_that_fails_its_checksum_stops_the_build(fake: FakeArchive, tmp_p
     remote = DirectoryRemote(tmp_path / "remote")
     fake.publish(remote, utc(2026, 11, 9))
     with pytest.raises(u1.U1Error, match="SHA-256"):
-        u1.build_binance(OCTOBER, CFG, remote, LIMITS, tmp_path / "b", row_group_rows=2)
+        u1.build("binance", OCTOBER, CFG, remote, LIMITS, tmp_path / "b", row_group_rows=2)
     assert remote.list("canonical") == {}
 
 
 def test_without_manifests_nothing_can_be_planned(tmp_path: Path) -> None:
     with pytest.raises(u1.U1Error, match="run the archive workflow"):
-        u1.plan_binance(CFG, DirectoryRemote(tmp_path), LIMITS, tmp_path / "w")
+        u1.plan("binance", CFG, DirectoryRemote(tmp_path), LIMITS, tmp_path / "w")
 
 
 def test_the_configured_universe_and_datasets_exist() -> None:
@@ -192,3 +193,112 @@ def test_the_configured_universe_and_datasets_exist() -> None:
     assert pattern.fullmatch("币安人生USDT")
     for other in ("BTCUSDT_250328", "BTCUSDC", "ETHBTC", "ICPUSDT_SETTLED", "TLMUSDTSETTLED"):
         assert not pattern.fullmatch(other), other
+
+
+BYBIT_CFG: dict[str, Any] = {
+    "bars": {"format": 1},
+    "bybit": {
+        "universe": "^[^_-]+USDT$",
+        "part": "bybit",
+        "daily": "b",
+        "settle_days": 7,
+        "workers": 2,
+        "batch": 1,
+    },
+}
+TRADING = "https://public.bybit.com/trading/"
+OCT_S = OCT_MS // 1000
+
+
+class FakeBybit:
+    """Bybit's archive: one gzip CSV of trades per contract-day, described as HEAD would."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, bytes] = {}
+        self.entries: list[ManifestEntry] = []
+
+    def put(self, folder: str, traded: str, day: str, seconds: list[int]) -> None:
+        url = f"{TRADING}{folder}/{traded}{day}.csv.gz"
+        rows = [f"{s},{traded},Buy,1.5,2.25,PlusTick,id,1,1,1" for s in seconds]
+        header = "timestamp,symbol,side,size,price,tickDirection,trdMatchID,a,b,c"
+        content = gzip.compress(("\n".join([header, *rows]) + "\n").encode())
+        self.files[url] = content
+        md5 = hashlib.md5(content, usedforsecurity=False).hexdigest()
+        self.entries.append(
+            ManifestEntry("b", folder, day, url, len(content), md5, utc(2026, 11, 2))
+        )
+
+    def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        content = self.files[str(request.url)]
+        etag = hashlib.md5(content, usedforsecurity=False).hexdigest()
+        headers = {"ETag": f'"{etag}"', "Last-Modified": "Wed, 04 Nov 2026 01:02:03 GMT"}
+        return httpx2.Response(200, content=content, headers=headers)
+
+
+def test_without_a_description_the_download_gives_the_publication_time(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = FakeBybit()
+    install(monkeypatch).handler = fake
+    fake.put("AAAUSDT", "AAAUSDT", "2026-10-01", [OCT_S + 1])
+    named_only = [ManifestEntry("b", e.symbol, e.period, e.url) for e in fake.entries]
+    remote = DirectoryRemote(tmp_path / "remote")
+    write_increment(
+        [Row(Change.ADDED, e) for e in named_only],
+        remote.root / increment_path("b", utc(2026, 11, 9)),
+    )
+    u1.build("bybit", OCTOBER, BYBIT_CFG, remote, LIMITS, tmp_path / "w", row_group_rows=2)
+    table = PartitionedTable(
+        "u1.bars_1m", ("exchange", "symbol"), 1, tmp_path / "read", remote, LIMITS
+    )
+    w = table.window(None, utc(2026, 11, 5))
+    assert w.table.column("ingested_at").to_pylist() == [utc(2026, 11, 4, 1, 2, 3)]
+
+
+def test_bybit_trades_become_the_bybit_partition(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = FakeBybit()
+    install(monkeypatch).handler = fake
+    fake.put("AAAUSDT", "AAAUSDT", "2026-10-01", [OCT_S + 1, OCT_S + 61])
+    fake.put("AAAUSDT", "AAAUSDT", "2026-10-02", [OCT_S + 86_400 + 5])
+    fake.put("BBBOLDUSDT", "BBBUSDT", "2026-10-01", [OCT_S + 7])  # the older contract of BBBUSDT
+    fake.put("AAAUSDT-26DEC26", "AAAUSDT-26DEC26", "2026-10-01", [OCT_S])  # dated: not in U1
+    fake.put("WC_X_USDT-26DEC26", "WC_X_USDT-26DEC26", "2026-10-01", [OCT_S])  # event contract
+    fake.put("AAAUSD", "AAAUSD", "2026-10-01", [OCT_S])  # inverse
+    remote = DirectoryRemote(tmp_path / "remote")
+    write_increment(
+        [Row(Change.ADDED, e) for e in fake.entries],
+        remote.root / increment_path("b", utc(2026, 11, 9)),
+    )
+    assert u1.plan("bybit", BYBIT_CFG, remote, LIMITS, tmp_path / "p").months == [OCTOBER]
+    result = u1.build("bybit", OCTOBER, BYBIT_CFG, remote, LIMITS, tmp_path / "w", row_group_rows=2)
+    assert (result.card.name, result.card.rows, result.from_daily) == (
+        "u1.bars_1m/v1/2026-10/bybit",
+        4,
+        [],
+    )
+    assert len(result.card.inputs) == 3
+    table = PartitionedTable(
+        "u1.bars_1m", ("exchange", "symbol"), 1, tmp_path / "read", remote, LIMITS
+    )
+    w = table.window(None, utc(2026, 11, 1), where={"exchange": {"bybit"}}, columns=["trades"])
+    assert set(w.table.column("symbol").to_pylist()) == {"AAAUSDT", "BBBOLDUSDT"}
+    assert w.table.column("trades").to_pylist() == [1, 1, 1, 1]
+
+
+def test_a_bybit_file_that_changed_since_it_was_described_stops_the_build(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = FakeBybit()
+    install(monkeypatch).handler = fake
+    fake.put("AAAUSDT", "AAAUSDT", "2026-10-01", [OCT_S + 1])
+    fake.files[fake.entries[0].url] += b"\0"  # replaced after the listing described it
+    remote = DirectoryRemote(tmp_path / "remote")
+    write_increment(
+        [Row(Change.ADDED, e) for e in fake.entries],
+        remote.root / increment_path("b", utc(2026, 11, 9)),
+    )
+    with pytest.raises(u1.U1Error, match="bytes, the manifest lists"):
+        u1.build("bybit", OCTOBER, BYBIT_CFG, remote, LIMITS, tmp_path / "w", row_group_rows=2)
+    assert remote.list("canonical") == {}
