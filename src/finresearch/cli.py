@@ -4,6 +4,8 @@
 ``finresearch run``        run a study for a hypothesis; ``--record`` enters it in the ledger
 ``finresearch reproduce``  rerun recorded trials from a blank state and compare fingerprints
 ``finresearch storage selftest``  write to the remote store, read back, compare, time it
+``finresearch collect plan | run``  scheduled collection, one job per source
+``finresearch monitor``  data freshness, outage issues, keeping schedules alive
 """
 
 import argparse
@@ -14,17 +16,20 @@ import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
+from finresearch import collect, monitor
 from finresearch.core.config import load_toml
 from finresearch.core.time import format_utc, parse_utc
 from finresearch.data.hub import HubRemote
 from finresearch.data.pit import AccessRefusedError
 from finresearch.data.selftest import selftest
 from finresearch.data.store import Limits, StoreError
+from finresearch.github import GitHub, GitHubError
 from finresearch.registry.appendonly import check_append_only, check_commits
 from finresearch.registry.ledger import read_chain
 from finresearch.registry.models import Refusal, Segment, Universe, plan_fingerprint
 from finresearch.registry.validate import REFUSALS, check, load
 from finresearch.runner import RunError, execute, record, reproduce
+from finresearch.sources.base import SourceError
 
 EXIT_REFUSED = 2
 
@@ -78,7 +83,58 @@ def _parser() -> argparse.ArgumentParser:
     )
     t = st.add_parser("selftest", help="write, read back and compare; needs HF_TOKEN, HF_DATASET")
     t.add_argument("--run-id", help="folder name for this check (default: the current time)")
+
+    co = sub.add_parser("collect", help="scheduled collection").add_subparsers(
+        dest="cmd", required=True
+    )
+    cp = co.add_parser("plan", help="print the enabled sources of a group as JSON")
+    cp.add_argument("--cron", default="", help="the cron string of a scheduled run")
+    cp.add_argument("--group", default="", help="a group name (manual runs)")
+    cr = co.add_parser("run", help="fetch one source, keep the raw bytes, push them")
+    cr.add_argument("--source", required=True)
+    sub.add_parser("monitor", help="check freshness, sync outage issues, keep schedules alive")
     return ap
+
+
+def _collect(args: argparse.Namespace) -> int:
+    cfg = collect.collect_config()
+    if args.cmd == "plan":
+        group = collect.group_for_cron(cfg, args.cron) if args.cron else args.group
+        print(json.dumps(collect.plan(cfg, group)))
+        return 0
+    hub = load_toml("storage")["hub"]
+    try:
+        with tempfile.TemporaryDirectory(prefix="finresearch-collect-") as tmp:
+            result = collect.run_source(
+                args.source,
+                cfg,
+                HubRemote.from_environment(hub),
+                Limits.from_config(hub),
+                Path(tmp),
+                datetime.now(UTC),
+            )
+    except (SourceError, StoreError) as exc:
+        print(f"failed: {exc}")
+        return 1
+    added = sum(len(r.added) for r in result.pushed)
+    print(f"{result.source}: {result.responses} response(s), {added} file(s) pushed")
+    return 0
+
+
+def _monitor() -> int:
+    try:
+        lines = monitor.run(
+            collect.collect_config(),
+            HubRemote.from_environment(load_toml("storage")["hub"]),
+            GitHub.from_environment(),
+            datetime.now(UTC),
+        )
+    except (StoreError, GitHubError) as exc:
+        print(f"error: {exc}")
+        return 1
+    for line in lines:
+        print(line)
+    return 0
 
 
 def _selftest(args: argparse.Namespace) -> int:
@@ -163,7 +219,11 @@ def main(argv: list[str] | None = None) -> int:
             return _reproduce(args)
         if args.area == "storage":
             return _selftest(args)
-    except RunError as exc:
+        if args.area == "collect":
+            return _collect(args)
+        if args.area == "monitor":
+            return _monitor()
+    except (RunError, collect.CollectError) as exc:
         print(f"error: {exc}")
         return 1
     if args.cmd == "check":

@@ -41,6 +41,18 @@
 
 令牌只放在 GitHub Secrets 里，不要贴进对话、提交或任何文件。令牌泄露时，在 Hugging Face 的 Access Tokens 页面删除它，再按第 3、4 步换一把新的。数据集名带着你的用户名，所以放在 Variables 里，而不是写进公开仓库。
 
+### 收到数据中断通知时
+
+监控每 4 小时检查一次每个数据源。某个数据源超过它的上限时间没有新数据，监控会在仓库里开一个标题为"数据中断：数据源名"的问题，GitHub 会给你发邮件。你不需要自己修：
+
+1. 告诉 AI"有数据中断"，或者把问题的链接发给它。
+2. AI 查看采集任务的日志，找出原因，修好后开拉取请求给你合并。
+3. 数据恢复后，监控会在问题里留言并自动关闭它，不用你手动关。
+
+- `heartbeat.canary`（心跳）中断，说明是整条采集流程出了问题，例如 Hugging Face 的令牌失效，而不是某个数据源。
+- `heartbeat.drill` 是演练用的。Phase 2.2 验收时它会故意中断一次，那封邮件是预期之中的。
+- 收到"仓库将近 60 天没有活动"的提醒时，合并任意一个拉取请求即可。如果定时任务已经被停用，在仓库的 Actions 页面分别打开"采集"和"监控"，点 Enable workflow。
+
 ## 给 AI 会话
 
 ### 常用命令
@@ -57,6 +69,9 @@ uv run finresearch registry check-commits                  # 账本引用的提�
 uv run finresearch run --study thin_slice --hypothesis H-0001 --segment exploration
 uv run finresearch reproduce --synthetic                   # 从空白状态重跑合成数据上的试验
 uv run finresearch storage selftest                        # 远程存储自检，需要 HF_TOKEN 和 HF_DATASET
+uv run finresearch collect plan --group every8h            # 列出一个定时组里启用的数据源
+uv run finresearch collect run --source heartbeat.canary   # 采集一个数据源并推送，需要 HF_TOKEN 和 HF_DATASET
+uv run finresearch monitor                                 # 监控一遍，还需要 GITHUB_TOKEN（只在 Actions 里运行）
 ```
 
 ### 记一次试验

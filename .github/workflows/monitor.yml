@@ -1,0 +1,42 @@
+# 监控（Phase 2.2）：每 4 小时检查每个数据源的新鲜度。数据中断时自动开一个问题
+# （GitHub 会给所有者发邮件），恢复后自动关闭；仓库将近 60 天无活动时提醒；
+# 并请求 GitHub 保持各定时任务启用。
+name: 监控
+
+on:
+  schedule:
+    - cron: "41 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write    # 开、关数据中断问题
+  actions: write   # 启用定时任务
+
+concurrency:
+  group: monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    name: 检查新鲜度
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - name: 检查
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET: ${{ vars.HF_DATASET }}
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run finresearch monitor

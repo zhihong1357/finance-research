@@ -45,8 +45,8 @@ def _value(v: float) -> str:
     return f"{v:.{DECIMALS}f}"
 
 
-def fetch(config: Mapping[str, Any]) -> list[Response]:
-    """The raw responses a full backfill of the synthetic API returns."""
+def fetch(config: Mapping[str, Any], _now: datetime | None = None) -> list[Response]:
+    """The raw responses a full backfill of the synthetic API returns (``now`` is not used)."""
     rng = random.Random(int(config["seed"]))  # noqa: S311 - a simulation, not security
     first = first_month(config)
     beta, lag = float(config["beta"]), int(config["lag_months"])
