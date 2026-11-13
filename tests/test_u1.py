@@ -231,7 +231,28 @@ class FakeBybit:
     def __call__(self, request: httpx2.Request) -> httpx2.Response:
         content = self.files[str(request.url)]
         etag = hashlib.md5(content, usedforsecurity=False).hexdigest()
-        return httpx2.Response(200, content=content, headers={"ETag": f'"{etag}"'})
+        headers = {"ETag": f'"{etag}"', "Last-Modified": "Wed, 04 Nov 2026 01:02:03 GMT"}
+        return httpx2.Response(200, content=content, headers=headers)
+
+
+def test_without_a_description_the_download_gives_the_publication_time(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = FakeBybit()
+    install(monkeypatch).handler = fake
+    fake.put("AAAUSDT", "AAAUSDT", "2026-10-01", [OCT_S + 1])
+    named_only = [ManifestEntry("b", e.symbol, e.period, e.url) for e in fake.entries]
+    remote = DirectoryRemote(tmp_path / "remote")
+    write_increment(
+        [Row(Change.ADDED, e) for e in named_only],
+        remote.root / increment_path("b", utc(2026, 11, 9)),
+    )
+    u1.build("bybit", OCTOBER, BYBIT_CFG, remote, LIMITS, tmp_path / "w", row_group_rows=2)
+    table = PartitionedTable(
+        "u1.bars_1m", ("exchange", "symbol"), 1, tmp_path / "read", remote, LIMITS
+    )
+    w = table.window(None, utc(2026, 11, 5))
+    assert w.table.column("ingested_at").to_pylist() == [utc(2026, 11, 4, 1, 2, 3)]
 
 
 def test_bybit_trades_become_the_bybit_partition(

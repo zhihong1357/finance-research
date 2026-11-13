@@ -22,7 +22,8 @@ import random
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -173,6 +174,7 @@ class SampleCheck:
     sha256: str
     etag: str
     problems: list[str]
+    last_modified: datetime | None = None  # the server's Last-Modified, when it sent one
 
     @property
     def ok(self) -> bool:
@@ -206,7 +208,9 @@ def download(
     if content:
         problems += lister.check(entry, data)
     sha = hashlib.sha256(data).hexdigest()
-    return data, SampleCheck(entry.url, len(data), sha, etag, problems)
+    modified = reply.headers.get("last-modified")
+    when = parsedate_to_datetime(modified).astimezone(UTC) if modified else None
+    return data, SampleCheck(entry.url, len(data), sha, etag, problems, when)
 
 
 def pick(

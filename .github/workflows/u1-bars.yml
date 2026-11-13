@@ -72,7 +72,7 @@ jobs:
     timeout-minutes: 300       # Bybit 近期的一个月要下载几十 GB 的逐笔成交
     strategy:
       fail-fast: false
-      max-parallel: 4          # 对归档服务器和数据集都客气一点
+      max-parallel: 2          # Bybit 限制每个地址的请求频率（collect.toml），不靠多开任务绕过它
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.jobs) }}
     steps:

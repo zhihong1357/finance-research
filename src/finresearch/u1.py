@@ -177,9 +177,11 @@ def _batches[T](items: Sequence[T], size: int) -> Iterator[Sequence[T]]:
 
 
 def _file_bars(exchange: str, e: ManifestEntry) -> tuple[PitTable, str]:
-    """Download, check and parse one archive file; return its bars and its SHA-256."""
-    if e.last_modified is None:
-        raise U1Error(f"{e.url}: the manifest has no publication time")
+    """Download, check and parse one archive file; return its bars and its SHA-256.
+
+    ``ingested_at`` is the file's publication time: from the manifest where the
+    listing gives it (Binance), otherwise from the download's Last-Modified.
+    """
     if exchange == "binance":
         content, check = archive.download(e, binance_archive)  # checks the official SHA-256
     else:
@@ -187,12 +189,13 @@ def _file_bars(exchange: str, e: ManifestEntry) -> tuple[PitTable, str]:
         content, check = archive.download(e, bybit_archive, content=False)
     if not check.ok:
         raise U1Error(f"{e.url}: {'; '.join(check.problems)}")
+    published = e.last_modified or check.last_modified
+    if published is None:
+        raise U1Error(f"{e.url}: neither the manifest nor the server gives a publication time")
     if exchange == "binance":
-        table = binance_klines.parse_klines(
-            binance_klines.csv_from_zip(content, e), e, e.last_modified
-        )
+        table = binance_klines.parse_klines(binance_klines.csv_from_zip(content, e), e, published)
     else:
-        table = bybit_trades.parse_trades(content, e, e.last_modified)
+        table = bybit_trades.parse_trades(content, e, published)
     return table, check.sha256
 
 
