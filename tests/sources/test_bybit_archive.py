@@ -48,10 +48,25 @@ def test_entries_keep_the_folder_and_read_the_day_from_the_name(server: FakeServ
     assert skipped == [f"{folder}notes.txt"]
 
 
-def test_a_symbol_ending_in_digits_is_split_from_the_day() -> None:
-    m = b._FILE.fullmatch("BTCUSDU212021-07-26_v2.csv.gz")  # pyright: ignore[reportPrivateUsage]
+@pytest.mark.parametrize(
+    ("name", "symbol", "day"),
+    [
+        ("BTCUSDU212021-07-26_v2.csv.gz", "BTCUSDU21", "2021-07-26"),  # ends in digits
+        ("BTC-01DEC232023-11-10.csv.gz", "BTC-01DEC23", "2023-11-10"),  # a dated contract
+        ("WC_AAA_BBB_USDT-28JUN262026-06-23.csv.gz", "WC_AAA_BBB_USDT-28JUN26", "2026-06-23"),
+    ],
+)
+def test_the_symbol_is_whatever_comes_before_the_day(name: str, symbol: str, day: str) -> None:
+    m = b._FILE.fullmatch(name)  # pyright: ignore[reportPrivateUsage]
     assert m is not None
-    assert (m["symbol"], m["day"]) == ("BTCUSDU21", "2021-07-26")
+    assert (m["symbol"], m["day"]) == (symbol, day)
+
+
+def test_a_dated_contract_file_passes() -> None:
+    entry = ManifestEntry(
+        "d", "BTC-01DEC23", "2026-11-12", f"{BASE}BTC-01DEC23/BTC-01DEC232026-11-12.csv.gz"
+    )
+    assert b.check(entry, _file(_row(DAY + 5, "BTC-01DEC23"))) == []
 
 
 HEADER = (

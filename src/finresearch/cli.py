@@ -166,8 +166,13 @@ def _archive(args: argparse.Namespace) -> int:
     )
     if result.no_checksum:
         _warn(f"{result.dataset}: {result.no_checksum} file(s) without an official checksum file")
-    for name in result.skipped:
-        _warn(f"{result.dataset}: not a data file of this dataset: {name}")
+    if result.skipped:
+        _warn(
+            f"{result.dataset}: {len(result.skipped)} name(s) are not data files, e.g. "
+            f"{result.skipped[0]}"
+        )
+        for name in result.skipped:
+            print(f"  skipped: {name}")
     for change, urls in result.examples.items():
         _warn(f"{result.dataset}: {result.counts[change]} file(s) {change}, e.g. {urls[0]}")
         for url in urls:

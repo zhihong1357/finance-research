@@ -28,6 +28,7 @@ from finresearch.sources import http
 INDEX = "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision"
 FILES = "https://data.binance.vision/"
 CHECKSUM_SUFFIX = ".CHECKSUM"
+OFFICIAL_CHECKSUMS: bool = True  # every zip has a .CHECKSUM file with its SHA-256
 _NS = "{http://s3.amazonaws.com/doc/2006-03-01/}"
 _PERIOD = re.compile(r"-(\d{4}-\d{2}(?:-\d{2})?)\.zip$")
 
