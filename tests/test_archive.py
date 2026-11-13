@@ -27,7 +27,7 @@ LIMITS = Limits(
     max_files_per_commit=50, max_entries_per_folder=9000, retries=0, retry_wait_seconds=0
 )
 CFG: dict[str, Any] = {
-    "listing": {"workers": 2, "max_shown": 5, "max_skipped": 1},
+    "listing": {"workers": 2, "describe_workers": 2, "max_shown": 5, "max_skipped": 1},
     "verify": {"max_sample": 4, "new_share": 0.5},
     "datasets": {
         "binance.um.metrics.daily": {
@@ -276,3 +276,34 @@ def test_the_archive_workflow_is_kept_alive() -> None:
     collect = tomllib.loads((REPO / "config/collect.toml").read_text(encoding="utf-8"))
     assert ".github/workflows/archive.yml" in collect["monitor"]["scheduled_workflows"]
     assert (REPO / ".github/workflows/archive.yml").is_file()
+
+
+class _Asking:
+    """A lister whose listing gives names only, and that counts the files it is asked about."""
+
+    OFFICIAL_CHECKSUMS = False
+
+    def __init__(self) -> None:
+        self.asked: list[str] = []
+
+    def describe(self, entry: ManifestEntry) -> ManifestEntry:
+        self.asked.append(entry.url)
+        return ManifestEntry(
+            entry.dataset, entry.symbol, entry.period, entry.url, 7, "e", utc(2026, 11, 2)
+        )
+
+
+def test_only_files_never_described_are_asked_about() -> None:
+    named = [_entry(n) for n in range(3)]
+    before = {
+        named[0].url: ManifestEntry(
+            "d", "S", "2026-11-10", named[0].url, 5, "old", utc(2026, 11, 1)
+        )
+    }
+    lister = _Asking()
+    entries, asked = archive.describe_all(named, before, lister, workers=2)  # pyright: ignore[reportArgumentType]
+    assert asked == 2
+    assert sorted(lister.asked) == [named[1].url, named[2].url]
+    assert [(e.size, e.etag) for e in entries] == [(5, "old"), (7, "e"), (7, "e")]
+    described = ManifestEntry("d", "S", "2026-11-10", "https://x.invalid/b.zip", 9, "x")
+    assert archive.describe_all([described], {}, lister, workers=2) == ([described], 0)  # pyright: ignore[reportArgumentType]

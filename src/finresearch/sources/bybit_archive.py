@@ -2,8 +2,10 @@
 
 The archive is a plain directory listing: under ``trading/``, one folder per
 contract and one gzip CSV of trades per day, named ``<SYMBOL><YYYY-MM-DD>.csv.gz``.
-The listing gives names only. There is no checksum file, so size, ETag and
-SHA-256 are taken when a file is first downloaded (docs/architecture.md 7.3).
+The listing gives names only. ``describe`` asks the server for a file's size,
+ETag (the MD5 of a single-part upload) and publication time with a HEAD
+request; the archive run does this once for every file it has not described
+before. There is no checksum file: SHA-256 is taken when a file is downloaded.
 
 The folder is not always the symbol in the file name: when Bybit reused a
 symbol, the old contract's files moved to a renamed folder (``ANTOLDUSDT``
@@ -19,7 +21,9 @@ import gzip
 import io
 import re
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 from finresearch.data.manifest import ManifestEntry
@@ -55,6 +59,18 @@ def entries(
         else:
             found.append(ManifestEntry(dataset, symbol, m["day"], folder + link))
     return found, skipped
+
+
+def describe(entry: ManifestEntry) -> ManifestEntry:
+    """``entry`` with the size, ETag and publication time the server gives for it."""
+    headers = http.fetch("HEAD", entry.url).headers
+    modified = headers.get("last-modified")
+    return replace(
+        entry,
+        size=int(headers["content-length"]) if "content-length" in headers else None,
+        etag=headers.get("etag", "").removeprefix("W/").strip('"') or None,
+        last_modified=parsedate_to_datetime(modified).astimezone(UTC) if modified else None,
+    )
 
 
 def check(entry: ManifestEntry, content: bytes) -> list[str]:

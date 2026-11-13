@@ -8,9 +8,11 @@ Tests replace ``TRANSPORT`` with an ``httpx2.MockTransport``, so nothing here
 touches the network during tests.
 """
 
+import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import cache
 from typing import Any
 
 import httpx2
@@ -23,6 +25,7 @@ _RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
 _OK = 200
 
 
+@cache
 def _settings() -> Mapping[str, Any]:
     return load_toml("collect")["http"]
 
@@ -46,6 +49,31 @@ def request(
     return fetch(method, url, params=params, body=body).content
 
 
+_local = threading.local()
+
+
+def _client(cfg: Mapping[str, Any]) -> httpx2.Client:
+    """One client per thread, reused across requests (keeps connections open).
+
+    A new client is made whenever ``TRANSPORT`` is a different object, so a test
+    that swaps in a fake transport never talks through a client made before it.
+    The thread keeps a reference to the transport it saw, so its identity cannot
+    be reused by a new object while the client lives.
+    """
+    client: httpx2.Client | None = getattr(_local, "client", None)
+    if client is not None and getattr(_local, "transport", None) is TRANSPORT:
+        return client
+    if client is not None:
+        client.close()
+    client = httpx2.Client(
+        timeout=float(cfg["timeout_seconds"]),
+        transport=TRANSPORT,
+        headers={"User-Agent": str(cfg["user_agent"])},
+    )
+    _local.client, _local.transport = client, TRANSPORT
+    return client
+
+
 def fetch(
     method: str,
     url: str,
@@ -56,24 +84,19 @@ def fetch(
     """Like ``request``, but also returns the headers (for ETag and Content-Length)."""
     cfg = _settings()
     retries, wait = int(cfg["retries"]), float(cfg["retry_wait_seconds"])
-    headers = {"User-Agent": str(cfg["user_agent"])}
+    client = _client(cfg)
     last = ""
-    with httpx2.Client(
-        timeout=float(cfg["timeout_seconds"]), transport=TRANSPORT, headers=headers
-    ) as client:
-        for attempt in range(retries + 1):
-            try:
-                response = client.request(method, url, params=params, json=body)
-            except httpx2.TransportError as exc:
-                last = type(exc).__name__
-            else:
-                if response.status_code == _OK:
-                    return Reply(
-                        response.content, {k.lower(): v for k, v in response.headers.items()}
-                    )
-                last = f"HTTP {response.status_code}"
-                if response.status_code not in _RETRY_STATUS:
-                    break
-            if attempt < retries:
-                time.sleep(wait)
+    for attempt in range(retries + 1):
+        try:
+            response = client.request(method, url, params=params, json=body)
+        except httpx2.TransportError as exc:
+            last = type(exc).__name__
+        else:
+            if response.status_code == _OK:
+                return Reply(response.content, {k.lower(): v for k, v in response.headers.items()})
+            last = f"HTTP {response.status_code}"
+            if response.status_code not in _RETRY_STATUS:
+                break
+        if attempt < retries:
+            time.sleep(wait)
     raise SourceError(f"{method} {url}: {last}")

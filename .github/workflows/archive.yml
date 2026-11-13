@@ -54,7 +54,7 @@ jobs:
     if: needs.plan.outputs.datasets != '[]'
     name: ${{ matrix.dataset }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 180       # Bybit 第一次要逐个询问约 80 万个文件
     strategy:
       fail-fast: false
       max-parallel: 3          # 对归档服务器客气一点

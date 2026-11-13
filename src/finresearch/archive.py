@@ -21,7 +21,7 @@ import hashlib
 import random
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -55,6 +55,8 @@ class Lister(Protocol):
     def entries(
         self, dataset: str, spec: Mapping[str, Any], symbol: str
     ) -> tuple[list[ManifestEntry], list[str]]: ...
+
+    def describe(self, entry: ManifestEntry) -> ManifestEntry: ...
 
     def check(self, entry: ManifestEntry, content: bytes) -> list[str]: ...
 
@@ -99,6 +101,33 @@ def list_dataset(dataset: str, spec: Mapping[str, Any], workers: int) -> Listing
     entries = [e for found, _ in parts for e in found]
     skipped = sorted(name for _, names in parts for name in names)
     return Listing(entries, len(symbols), skipped)
+
+
+def describe_all(
+    entries: Sequence[ManifestEntry],
+    before: Mapping[str, ManifestEntry],
+    lister: Lister,
+    workers: int,
+) -> tuple[list[ManifestEntry], int]:
+    """Entries with size, ETag and publication time filled in; and how many needed asking.
+
+    A file the previous listing already described keeps that description (a
+    listing of names alone cannot see a file change; a download that no longer
+    matches the description fails its check). Only the rest are asked about.
+    """
+    known: list[ManifestEntry] = []
+    todo: list[ManifestEntry] = []
+    for e in entries:
+        old = before.get(e.url)
+        if e.size is not None:
+            known.append(e)
+        elif old is not None and old.size is not None:
+            known.append(replace(e, size=old.size, etag=old.etag, last_modified=old.last_modified))
+        else:
+            todo.append(e)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        asked = list(pool.map(lister.describe, todo))
+    return sorted(known + asked, key=lambda e: e.url), len(todo)
 
 
 @dataclass(frozen=True)
@@ -160,6 +189,7 @@ class RunResult:
     symbols: int
     files: int
     bytes_listed: int
+    described: int  # files whose size and ETag had to be asked for (HEAD) in this run
     counts: dict[str, int]  # change -> number of rows in the increment
     skipped: list[str]  # all of them; at most ``max_skipped``
     no_checksum: int  # files without an official checksum, where the archive promises one
@@ -195,7 +225,11 @@ def run(
             f"{dataset}: {len(listing.skipped)} names do not fit the dataset's naming "
             f"(limit {limit}), e.g. {listing.skipped[:3]}; nothing was stored"
         )
-    rows = diff(before, listing.entries)
+    lister = LISTERS[spec["exchange"]]
+    entries, described = describe_all(
+        listing.entries, before, lister, int(cfg["listing"]["describe_workers"])
+    )
+    rows = diff(before, entries)
     out = work / "out"
     path = increment_path(dataset, ensure_utc(now))
     write_increment(rows, out / path)
@@ -203,16 +237,16 @@ def run(
     pushed = push(out, remote, prefix, limits, f"{dataset}: manifest increment {counts}")
 
     shown = int(cfg["listing"]["max_shown"])
-    lister = LISTERS[spec["exchange"]]
     result = RunResult(
         dataset=dataset,
         increment=path,
         symbols=listing.symbols,
-        files=len(listing.entries),
-        bytes_listed=sum(e.size or 0 for e in listing.entries),
+        files=len(entries),
+        bytes_listed=sum(e.size or 0 for e in entries),
+        described=described,
         counts=counts,
         skipped=listing.skipped,
-        no_checksum=sum(e.checksum_url is None for e in listing.entries)
+        no_checksum=sum(e.checksum_url is None for e in entries)
         if lister.OFFICIAL_CHECKSUMS
         else 0,
         pushed=pushed,
@@ -221,7 +255,7 @@ def run(
     n = min(int(spec.get("sample", cfg["verify"]["max_sample"])), int(cfg["verify"]["max_sample"]))
     added = [r.entry for r in rows if r.change is Change.ADDED]
     rng = random.Random(seed)  # noqa: S311 - a reproducible sample, not a secret
-    sample = pick(listing.entries, added, n, float(cfg["verify"]["new_share"]), rng)
+    sample = pick(entries, added, n, float(cfg["verify"]["new_share"]), rng)
     result.checks = [verify(e, lister) for e in sample]
     return result
 
