@@ -43,6 +43,8 @@ enabled = true
 [monitor]
 issue_marker = "finresearch:outage"   # 监控开的问题里带这个标记，用来认出自己开过的问题
 inactivity_warn_days = 45             # 公开仓库 60 天无活动会停用定时任务；45 天时提醒所有者
+storage_quota_gb = 100                # Hugging Face 免费账户的私有存储额度（架构 7.3）
+storage_warn_gb = 80                  # 决策 0010：私有数据集超过这么多就开问题，重新考虑存储
 scheduled_workflows = [
   ".github/workflows/collect.yml",
   ".github/workflows/monitor.yml",

@@ -9,7 +9,9 @@ the repository's issues match:
   count as sources: their record is the newest manifest increment;
 * **inactivity**: no push to the repository for ``inactivity_warn_days``.
   GitHub disables scheduled workflows in a public repository after 60 days
-  without activity, so the owner is warned while there is still time.
+  without activity, so the owner is warned while there is still time;
+* **storage**: the private dataset holds more than ``storage_warn_gb``, the
+  point at which decision 0010 asks to reconsider storage.
 
 An alert that should be open and is not gets a new issue (GitHub emails the
 owner). An issue for an alert that has cleared gets a comment and is closed.
@@ -174,6 +176,38 @@ def inactivity_alert(pushed_at: datetime, now: datetime, warn_days: int) -> Aler
     )
 
 
+_BYTES_PER_GB = 1e9
+
+
+def storage_usage(remote: Remote) -> dict[str, int]:
+    """Bytes in the remote store, by top-level folder."""
+    usage: dict[str, int] = {}
+    for path, size in remote.list("").items():
+        top = path.split("/", 1)[0] if "/" in path else "(top level)"
+        usage[top] = usage.get(top, 0) + size
+    return dict(sorted(usage.items()))
+
+
+def storage_alert(usage: Mapping[str, int], warn_gb: float, quota_gb: float) -> Alert | None:
+    total = sum(usage.values()) / _BYTES_PER_GB
+    if total < warn_gb:
+        return None
+    parts = "、".join(f"{k} {v / _BYTES_PER_GB:.1f} GB" for k, v in usage.items())
+    return Alert(
+        "storage",
+        f"提醒：私有数据集已用 {total:.1f} GB，超过 {warn_gb:.0f} GB",
+        "\n".join(
+            [
+                f"私有数据集现在一共 {total:.1f} GB（{parts}），免费额度是 {quota_gb:.0f} GB。",
+                "",
+                "按决策 0010，用量超过这条线就要重新考虑存储：删掉可以重建的部分、"
+                "改用更紧凑的格式，或者换一个存储后端。告诉 AI 来处理即可。",
+                "用量回到这条线以下时，这个问题会自动关闭。",
+            ]
+        ),
+    )
+
+
 def _marker(prefix: str, key: str) -> str:
     return f"<!-- {prefix} key={key} -->"
 
@@ -232,6 +266,16 @@ def run(
     idle = inactivity_alert(repo.pushed_at(), now, int(mon["inactivity_warn_days"]))
     if idle is not None:
         alerts.append(idle)
+    usage = storage_usage(remote)
+    total = sum(usage.values()) / _BYTES_PER_GB
+    lines.append(
+        f"storage: {total:.2f} GB of {float(mon['storage_quota_gb']):.0f} GB ("
+        + ", ".join(f"{k} {v / _BYTES_PER_GB:.2f} GB" for k, v in usage.items())
+        + ")"
+    )
+    full = storage_alert(usage, float(mon["storage_warn_gb"]), float(mon["storage_quota_gb"]))
+    if full is not None:
+        alerts.append(full)
     lines += sync_issues(alerts, repo, str(mon["issue_marker"]), now)
     lines += keepalive(repo, [str(p) for p in mon["scheduled_workflows"]])
     return lines

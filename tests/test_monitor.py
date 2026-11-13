@@ -14,6 +14,8 @@ from finresearch.monitor import (
     record_time,
     run,
     source_alerts,
+    storage_alert,
+    storage_usage,
     sync_issues,
 )
 
@@ -28,6 +30,8 @@ CFG = {
     "monitor": {
         "issue_marker": "finresearch:outage",
         "inactivity_warn_days": 45,
+        "storage_quota_gb": 100,
+        "storage_warn_gb": 80,
         "scheduled_workflows": [".github/workflows/collect.yml", ".github/workflows/monitor.yml"],
     },
 }
@@ -154,6 +158,26 @@ def test_issues_follow_the_alerts() -> None:
     assert sorted(repo.issues) == [7, 9]  # the person's issue is never touched
 
 
+def test_storage_is_summed_by_folder_and_watched(tmp_path: Path) -> None:
+    remote = DirectoryRemote(tmp_path)
+    for path, size in [
+        ("raw/a/x.gz", 300),
+        ("raw/b/y.gz", 200),
+        ("canonical/t/z.parquet", 1000),
+        ("README.md", 5),
+    ]:
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_bytes(b"x" * size)
+    usage = storage_usage(remote)
+    assert usage == {"(top level)": 5, "canonical": 1000, "raw": 500}
+    assert storage_alert(usage, warn_gb=80, quota_gb=100) is None
+    alert = storage_alert({"canonical": 81_000_000_000, "raw": 500_000_000}, 80, 100)
+    assert alert is not None
+    assert alert.key == "storage"
+    assert alert.title == "提醒：私有数据集已用 81.5 GB，超过 80 GB"
+    assert "canonical 81.0 GB、raw 0.5 GB" in alert.body
+
+
 def test_inactivity_warning() -> None:
     assert inactivity_alert(NOW - timedelta(days=44, hours=23), NOW, 45) is None
     alert = inactivity_alert(NOW - timedelta(days=45), NOW, 45)
@@ -185,4 +209,5 @@ def test_one_monitor_pass(tmp_path: Path) -> None:
     assert "opened #1: source:stale" in lines
     assert "opened #2: source:late" in lines
     assert "opened #3: inactivity" in lines
+    assert any(line.startswith("storage: 0.00 GB of 100 GB (") for line in lines)
     assert repo.enabled == [2, 3]
