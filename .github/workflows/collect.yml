@@ -6,12 +6,13 @@ name: 采集
 on:
   schedule:
     - cron: "17 */8 * * *"   # every8h
+    - cron: "23 */4 * * *"   # every4h
   workflow_dispatch:
     inputs:
       group:
         description: 定时组（config/collect.toml 的 groups）
         required: true
-        default: every8h
+        default: every4h
 
 permissions:
   contents: read
