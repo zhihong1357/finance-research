@@ -33,6 +33,7 @@
 
 ## 约定
 
+- 提交之前在本地跑通 `uv run ruff check .`、`uv run ruff format --check .`、`uv run pyright`、`uv run pytest`。详见 `docs/development.md`。
 - 文档、报告、通知用中文。代码、标识符、注释、提交说明、文件名用英文。
 - 可调的数字全部放在配置文件里，代码里不出现魔法数字。
 - 时间一律用带时区的 UTC。

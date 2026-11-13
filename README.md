@@ -23,6 +23,7 @@
 | [旧系统中可取用的部分](docs/prior-systems.md) | 旧仓库里还有什么值得取用 |
 | [决策记录](docs/decisions/) | 每个关键设计选择的理由和代价 |
 | [术语表](docs/glossary.md) | 文档里的专业词是什么意思 |
+| [开发说明](docs/development.md) | 改动怎样进入仓库，自动检查拦住什么 |
 
 只读一篇的话，读[总纲](docs/charter.md)的第 3 节。
 
