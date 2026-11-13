@@ -101,7 +101,7 @@ def test_staleness_by_source(tmp_path: Path) -> None:
     assert not status["off"].enabled
     (alert,) = source_alerts(list(status.values()), NOW)
     assert alert.key == "source:stale"
-    assert "18 小时没有新数据" in alert.body
+    assert "`stale` 已经 18 小时没有新数据，上限是 17 小时。" in alert.body
 
 
 def test_issues_follow_the_alerts() -> None:
@@ -109,6 +109,7 @@ def test_issues_follow_the_alerts() -> None:
     alert = source_alerts(check_sources(CFG, DirectoryRemote(Path("/nonexistent")), NOW), NOW)
     stale_keys = sorted(a.key for a in alert)
     assert stale_keys == ["source:fresh", "source:stale"]  # neither has any record
+    assert "`fresh` 自加入以来还没有任何数据，上限是 17 小时。" in alert[0].body
     assert sync_issues(alert, repo, "finresearch:outage", NOW) == [
         "opened #8: source:fresh",
         "opened #9: source:stale",

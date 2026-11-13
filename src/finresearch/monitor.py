@@ -105,10 +105,10 @@ def source_alerts(statuses: list[SourceStatus], now: datetime) -> list[Alert]:
     for s in statuses:
         if not s.stale:
             continue
-        hours = (
-            "从未"
+        gap = (
+            "自加入以来还没有任何数据"
             if s.newest is None
-            else f"{(now - s.newest).total_seconds() / _SECONDS_PER_HOUR:.0f} 小时"
+            else f"已经 {(now - s.newest).total_seconds() / _SECONDS_PER_HOUR:.0f} 小时没有新数据"
         )
         alerts.append(
             Alert(
@@ -116,7 +116,7 @@ def source_alerts(statuses: list[SourceStatus], now: datetime) -> list[Alert]:
                 f"数据中断：{s.source}",
                 "\n".join(
                     [
-                        f"数据源 `{s.source}` {hours}没有新数据，"
+                        f"数据源 `{s.source}` {gap}，"
                         f"上限是 {s.max_age.total_seconds() / _SECONDS_PER_HOUR:.0f} 小时。",
                         "",
                         f"- 最新一条记录：{_fmt(s.newest)}",
