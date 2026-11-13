@@ -28,4 +28,5 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_DATASET: ${{ vars.HF_DATASET }}
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"  # 进度条会把日志刷成几百行
         run: uv run finresearch storage selftest --run-id "run-${{ github.run_id }}"
