@@ -32,7 +32,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from finresearch.core.time import ensure_utc
-from finresearch.data.fixed import SCALE_TYPE, Column, Fixed
+from finresearch.data.fixed import SCALE_TYPE, Column, Fixed, FixedPointError
 from finresearch.data.table import AVAILABLE_AT, EVENT_TIME, INGESTED_AT, TIME_TYPE, PitTable
 
 NAME = "u1.bars_1m"
@@ -94,6 +94,85 @@ def bars(
         columns[scale_column(name)] = pa.array([values[name].scale] * n, type=SCALE_TYPE)
     columns[TRADES] = trades.cast(pa.int64())
     return PitTable(NAME, KEYS, pa.table(columns))
+
+
+def from_trades(
+    exchange: str,
+    symbol: str,
+    time_us: Column,
+    price: Fixed,
+    size: Fixed,
+    taker_buys: Column,
+    ingested_at: datetime,
+) -> PitTable:
+    """1-minute bars from individual trades, already in time order (ties in trade order).
+
+    ``time_us`` is each trade's time in microseconds since the epoch (UTC),
+    ``taker_buys`` is true where the taker bought. Open and close are the first
+    and last trades of the minute; quote volume is the exact sum of price times
+    size. Minutes without trades have no bar. Sums run in 128-bit decimals and
+    must fit in 64-bit mantissas again, or ``FixedPointError`` is raised.
+    """
+    n = len(time_us)
+    if not (len(price) == len(size) == len(taker_buys) == n):
+        raise BarError("trade columns of different lengths")
+    if n and pc.any(pc.less(pc.subtract(time_us[1:], time_us[:-1]), _ZERO)).as_py():
+        raise BarError(f"{symbol}: trades are not in time order")
+    try:
+        quote = pc.multiply_checked(price.mantissa, size.mantissa)
+    except pa.ArrowInvalid as exc:
+        raise FixedPointError(f"{symbol}: price times size does not fit in 64 bits") from exc
+    wide = pa.decimal128(38, 0)
+    zero = pa.scalar(0, pa.int64())
+    trades = pa.table(
+        {
+            "minute": pc.multiply(pc.divide(time_us.cast(pa.int64()), _BAR_US), _BAR_US),
+            "price": price.mantissa,
+            "size": size.mantissa.cast(wide),
+            "quote": quote.cast(wide),
+            "buy": pc.if_else(taker_buys, size.mantissa, zero).cast(wide),
+            "buy_quote": pc.if_else(taker_buys, quote, zero).cast(wide),
+        }
+    )
+    g = trades.group_by("minute", use_threads=False).aggregate(
+        [
+            ("price", "first"),
+            ("price", "max"),
+            ("price", "min"),
+            ("price", "last"),
+            ("size", "sum"),
+            ("quote", "sum"),
+            ("buy", "sum"),
+            ("buy_quote", "sum"),
+            ("price", "count"),
+        ]
+    )
+
+    def narrow(column: str, scale: int) -> Fixed:
+        try:
+            return Fixed(g.column(column).combine_chunks().cast(pa.int64()), scale)
+        except pa.ArrowInvalid as exc:
+            raise FixedPointError(f"{symbol}: a minute's {column} does not fit in 64 bits") from exc
+
+    q_scale = price.scale + size.scale
+    values = {
+        "open": Fixed(g.column("price_first").combine_chunks(), price.scale),
+        "high": Fixed(g.column("price_max").combine_chunks(), price.scale),
+        "low": Fixed(g.column("price_min").combine_chunks(), price.scale),
+        "close": Fixed(g.column("price_last").combine_chunks(), price.scale),
+        "volume": narrow("size_sum", size.scale),
+        "quote_volume": narrow("quote_sum", q_scale),
+        "taker_buy_volume": narrow("buy_sum", size.scale),
+        "taker_buy_quote_volume": narrow("buy_quote_sum", q_scale),
+    }
+    return bars(
+        exchange,
+        symbol,
+        g.column("minute").combine_chunks(),
+        values,
+        g.column("price_count").combine_chunks(),
+        ingested_at,
+    )
 
 
 def concat(tables: Sequence[PitTable]) -> PitTable:

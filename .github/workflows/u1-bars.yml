@@ -1,6 +1,7 @@
-# U1 的 1 分钟数据（Phase 2.5.3，决策 0010）：按归档清单下载 Binance 的 1 分钟 K 线，
-# 核对官方校验和，加工成按月分区的时点表，推到数据集。每个月一个任务，一个失败不影响其他。
-# 已经加工过的月份不再加工（远程存储只追加）。每月 15 日运行一次，补上刚结束的那个月。
+# U1 的 1 分钟数据（Phase 2.5，决策 0010）：按归档清单下载 Binance 的 1 分钟 K 线和 Bybit 的
+# 逐笔成交，核对大小、ETag 和校验和，加工成按月分区的时点表，推到数据集。每个交易所的每个月
+# 一个任务，一个失败不影响其他。已经加工过的月份不再加工（远程存储只追加）。
+# 每月 15 日运行一次，补上刚结束的那个月。
 name: U1 1 分钟数据
 
 on:
@@ -8,8 +9,14 @@ on:
     - cron: "47 4 15 * *"    # 每月 15 日 04:47 UTC：月度文件已出现，周一的归档清单已经列到
   workflow_dispatch:
     inputs:
+      exchange:
+        description: 只加工这个交易所
+        required: false
+        default: all
+        type: choice
+        options: [all, binance, bybit]
       months:
-        description: 只加工这些月份（如 2026-09,2026-10；留空按计划加工全部未完成的月份）
+        description: 只加工这些月份（如 2026-09,2026-10，要同时选交易所；留空按计划加工全部未完成的月份）
         required: false
         default: ""
 
@@ -26,7 +33,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
-      months: ${{ steps.plan.outputs.months }}
+      jobs: ${{ steps.plan.outputs.jobs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -41,28 +48,33 @@ jobs:
       - id: plan
         name: 列出
         env:
+          EXCHANGE: ${{ inputs.exchange }}
           MONTHS: ${{ inputs.months }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_DATASET: ${{ vars.HF_DATASET }}
           HF_HUB_DISABLE_PROGRESS_BARS: "1"
         run: |
+          if [ "$EXCHANGE" = all ]; then EXCHANGE=""; fi   # 定时运行时为空，手动运行时默认 all
           if [ -n "$MONTHS" ]; then
-            echo "months=$(jq -cn --arg m "$MONTHS" '$m | split(",") | map(gsub(" "; ""))')" >> "$GITHUB_OUTPUT"
+            if [ -z "$EXCHANGE" ]; then echo "选月份时要同时选交易所"; exit 1; fi
+            echo "jobs=$(jq -cn --arg e "$EXCHANGE" --arg m "$MONTHS" '$m | split(",") | map(gsub(" "; "")) | map({exchange: $e, month: .})')" >> "$GITHUB_OUTPUT"
+          elif [ -n "$EXCHANGE" ]; then
+            echo "jobs=$(uv run finresearch u1 plan --exchange "$EXCHANGE")" >> "$GITHUB_OUTPUT"
           else
-            echo "months=$(uv run finresearch u1 plan --exchange binance)" >> "$GITHUB_OUTPUT"
+            echo "jobs=$(uv run finresearch u1 plan)" >> "$GITHUB_OUTPUT"
           fi
 
   build:
     needs: plan
-    if: needs.plan.outputs.months != '[]'
-    name: binance ${{ matrix.month }}
+    if: needs.plan.outputs.jobs != '[]'
+    name: ${{ matrix.exchange }} ${{ matrix.month }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 300       # Bybit 近期的一个月要下载几十 GB 的逐笔成交
     strategy:
       fail-fast: false
       max-parallel: 4          # 对归档服务器和数据集都客气一点
       matrix:
-        month: ${{ fromJSON(needs.plan.outputs.months) }}
+        include: ${{ fromJSON(needs.plan.outputs.jobs) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -76,8 +88,9 @@ jobs:
 
       - name: 下载、核对、加工、推送
         env:
+          EXCHANGE: ${{ matrix.exchange }}
           MONTH: ${{ matrix.month }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_DATASET: ${{ vars.HF_DATASET }}
           HF_HUB_DISABLE_PROGRESS_BARS: "1"
-        run: uv run finresearch u1 build --exchange binance --month "$MONTH"
+        run: uv run finresearch u1 build --exchange "$EXCHANGE" --month "$MONTH"

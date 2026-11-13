@@ -148,22 +148,29 @@ def verify(entry: ManifestEntry, lister: Lister) -> SampleCheck:
     return download(entry, lister)[1]
 
 
-def download(entry: ManifestEntry, lister: Lister) -> tuple[bytes, SampleCheck]:
-    """Download one file; return its bytes and how they compare with the manifest entry."""
+def download(
+    entry: ManifestEntry, lister: Lister, *, content: bool = True
+) -> tuple[bytes, SampleCheck]:
+    """Download one file; return its bytes and how they compare with the manifest entry.
+
+    ``content=False`` skips the lister's check of what the file holds, for callers
+    that parse the whole file anyway and check it as they go.
+    """
     reply = http.fetch("GET", entry.url)
-    content = reply.content
+    data = reply.content
     etag = reply.headers.get("etag", "").removeprefix("W/").strip('"')
     problems: list[str] = []
-    if entry.size is not None and len(content) != entry.size:
-        problems.append(f"{len(content)} bytes, the manifest lists {entry.size}")
+    if entry.size is not None and len(data) != entry.size:
+        problems.append(f"{len(data)} bytes, the manifest lists {entry.size}")
     if entry.etag is not None and etag != entry.etag:
         problems.append(f"ETag {etag!r}, the manifest lists {entry.etag!r}")
     # A single-part S3 upload's ETag is the MD5 of the bytes; a multipart one has a "-".
-    if etag and "-" not in etag and hashlib.md5(content, usedforsecurity=False).hexdigest() != etag:
+    if etag and "-" not in etag and hashlib.md5(data, usedforsecurity=False).hexdigest() != etag:
         problems.append("MD5 of the bytes differs from the ETag")
-    problems += lister.check(entry, content)
-    sha = hashlib.sha256(content).hexdigest()
-    return content, SampleCheck(entry.url, len(content), sha, etag, problems)
+    if content:
+        problems += lister.check(entry, data)
+    sha = hashlib.sha256(data).hexdigest()
+    return data, SampleCheck(entry.url, len(data), sha, etag, problems)
 
 
 def pick(

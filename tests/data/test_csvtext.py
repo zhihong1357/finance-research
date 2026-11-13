@@ -1,6 +1,6 @@
 import pytest
 
-from finresearch.data.csvtext import CsvError, read
+from finresearch.data.csvtext import CsvError, read, read_named
 
 
 def test_text_stays_text_and_integers_become_integers() -> None:
@@ -18,3 +18,14 @@ def test_a_wrong_shape_is_an_error() -> None:
         read(b"1,2,3\n", ["n", "x"], {"n"}, header=False)
     with pytest.raises(CsvError):
         read(b"x,a\n", ["n", "x"], {"n"}, header=False)
+
+
+def test_named_columns_are_found_wherever_they_are() -> None:
+    t = read_named(b"b,a,c\n2,1,x\n", ["a", "c"])
+    assert t.column_names == ["a", "c"]
+    assert t.column("a").to_pylist() == ["1"]
+
+
+def test_a_missing_named_column_is_an_error() -> None:
+    with pytest.raises(CsvError):
+        read_named(b"a,b\n1,2\n", ["a", "z"])

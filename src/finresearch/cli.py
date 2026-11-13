@@ -107,9 +107,9 @@ def _parser() -> argparse.ArgumentParser:
 
     uu = sub.add_parser("u1", help="U1's 1-minute bars").add_subparsers(dest="cmd", required=True)
     up = uu.add_parser("plan", help="print the months to build as JSON")
-    up.add_argument("--exchange", required=True, choices=["binance"])
+    up.add_argument("--exchange", choices=list(u1.EXCHANGES), help="one exchange (default: all)")
     ub = uu.add_parser("build", help="build one month and push it")
-    ub.add_argument("--exchange", required=True, choices=["binance"])
+    ub.add_argument("--exchange", required=True, choices=list(u1.EXCHANGES))
     ub.add_argument("--month", required=True, help="YYYY-MM")
     return ap
 
@@ -202,13 +202,17 @@ def _u1(args: argparse.Namespace) -> int:
         remote, limits = HubRemote.from_environment(hub), Limits.from_config(hub)
         with tempfile.TemporaryDirectory(prefix="finresearch-u1-") as tmp:
             if args.cmd == "plan":
-                plan = u1.plan_binance(cfg, remote, limits, Path(tmp))
-                for line in plan.stale:
-                    _warn(f"u1.bars_1m binance {line}")
-                print(json.dumps([f"{m:%Y-%m}" for m in plan.months]))
+                jobs: list[dict[str, str]] = []
+                for exchange in [args.exchange] if args.exchange else u1.EXCHANGES:
+                    plan = u1.plan(exchange, cfg, remote, limits, Path(tmp) / exchange)
+                    for line in plan.stale:
+                        _warn(f"u1.bars_1m {exchange} {line}")
+                    jobs += [{"exchange": exchange, "month": f"{m:%Y-%m}"} for m in plan.months]
+                print(json.dumps(jobs))
                 return 0
             year, month = (int(x) for x in args.month.split("-"))
-            result = u1.build_binance(
+            result = u1.build(
+                args.exchange,
                 date(year, month, 1),
                 cfg,
                 remote,
