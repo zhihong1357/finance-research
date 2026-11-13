@@ -51,6 +51,7 @@ uv run finresearch registry check-append-only --base main  # 历史只增不改
 |---|---|---|
 | tzdata | 1.2 | 时区规则随代码锁定，不依赖运行机器的系统时区 |
 | pydantic | 1.4 | 注册表文件的格式校验，错误信息指出具体字段（[决策 0004](decisions/0004-toolchain.md) 已列入） |
+| pyarrow | 1.5 | 时点表的内存格式和 Parquet 读写（决策 0004 已列入）。另有开发依赖 `pyarrow-stubs` 补充类型标注 |
 
 ### 测试的约束
 
