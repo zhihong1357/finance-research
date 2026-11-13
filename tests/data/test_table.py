@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 
 import pyarrow as pa
@@ -7,17 +6,35 @@ import pyarrow.parquet as pq
 import pytest
 
 from finresearch.core.time import utc
-from finresearch.data.table import TIME_TYPE, PitTable, TableError, from_parquet, to_parquet, versions_as_of
+from finresearch.data.table import (
+    TIME_TYPE,
+    PitTable,
+    TableError,
+    from_parquet,
+    to_parquet,
+    versions_as_of,
+)
 from tests.data.conftest import ROWS, make_table
 
 
 def _values(t: pa.Table) -> list[tuple[object, object, object]]:
-    return list(zip(t.column("series").to_pylist(), t.column("event_time").to_pylist(), t.column("value").to_pylist(), strict=True))
+    return list(
+        zip(
+            t.column("series").to_pylist(),
+            t.column("event_time").to_pylist(),
+            t.column("value").to_pylist(),
+            strict=True,
+        )
+    )
 
 
 def test_versions_as_of_follow_publication_and_revision(macro: PitTable) -> None:
-    assert versions_as_of(macro, utc(2026, 10, 15, 12, 29, 59)).num_rows == 0  # nothing published yet
-    assert _values(versions_as_of(macro, utc(2026, 10, 15, 12, 30))) == [("CPI", utc(2026, 9, 30), 3.0)]  # inclusive
+    assert (
+        versions_as_of(macro, utc(2026, 10, 15, 12, 29, 59)).num_rows == 0
+    )  # nothing published yet
+    assert _values(versions_as_of(macro, utc(2026, 10, 15, 12, 30))) == [
+        ("CPI", utc(2026, 9, 30), 3.0)
+    ]  # inclusive
     assert _values(versions_as_of(macro, utc(2026, 11, 1))) == [
         ("CPI", utc(2026, 9, 30), 3.0),
         ("PPI", utc(2026, 9, 30), 1.0),
@@ -37,7 +54,9 @@ def test_returned_rows_keep_their_columns_and_utc(macro: PitTable) -> None:
 
 def test_fingerprint_ignores_row_order_and_chunking(macro: PitTable) -> None:
     shuffled = make_table([ROWS[2], ROWS[0], ROWS[3], ROWS[1]])
-    chunked = PitTable("macro", ("series",), pa.concat_tables([macro.table.slice(0, 2), macro.table.slice(2)]))
+    chunked = PitTable(
+        "macro", ("series",), pa.concat_tables([macro.table.slice(0, 2), macro.table.slice(2)])
+    )
     assert shuffled.fingerprint == macro.fingerprint == chunked.fingerprint
 
 
@@ -50,7 +69,10 @@ def test_fingerprint_sees_content_name_and_keys(macro: PitTable) -> None:
 def test_fingerprint_format_anchor(macro: PitTable) -> None:
     # Pins the logical-content fingerprint (Arrow IPC of the canonical table). A change here
     # silently changes every recorded data fingerprint: it needs a deliberate migration.
-    assert str(macro.fingerprint) == "sha256:fc8c21c8b113cca1737953f7c832303a0d4a8d372afb3d14ddb619bc10d5f7cb"
+    assert (
+        str(macro.fingerprint)
+        == "sha256:fc8c21c8b113cca1737953f7c832303a0d4a8d372afb3d14ddb619bc10d5f7cb"
+    )
 
 
 def test_parquet_round_trip(tmp_path: Path, macro: PitTable) -> None:
@@ -73,17 +95,31 @@ def _with(macro: PitTable, column: str, array: pa.Array | pa.ChunkedArray) -> pa
     ("make", "message"),
     [
         (lambda m: m.table.drop_columns(["ingested_at"]), "missing column 'ingested_at'"),
-        (lambda m: _with(m, "available_at", m.table.column("available_at").cast(pa.timestamp("us"))), "must be"),
-        (lambda m: _with(m, "available_at", m.table.column("available_at").cast(pa.timestamp("ms", tz="UTC"))), "must be"),
+        (
+            lambda m: _with(
+                m, "available_at", m.table.column("available_at").cast(pa.timestamp("us"))
+            ),
+            "must be",
+        ),
+        (
+            lambda m: _with(
+                m, "available_at", m.table.column("available_at").cast(pa.timestamp("ms", tz="UTC"))
+            ),
+            "must be",
+        ),
         (lambda m: _with(m, "series", pa.array(["CPI", None, "CPI", "PPI"])), "has nulls"),
         (lambda m: m.table.take([0, 0]), "share keys"),
         (
-            lambda m: _with(m, "ingested_at", m.table.column("available_at").cast(TIME_TYPE).take([0, 0, 0, 0])),
+            lambda m: _with(
+                m, "ingested_at", m.table.column("available_at").cast(TIME_TYPE).take([0, 0, 0, 0])
+            ),
             "ingested before it was available",
         ),
     ],
 )
-def test_contract_violations(macro: PitTable, make: Callable[[PitTable], pa.Table], message: str) -> None:
+def test_contract_violations(
+    macro: PitTable, make: Callable[[PitTable], pa.Table], message: str
+) -> None:
     with pytest.raises(TableError, match=message):
         PitTable("macro", ("series",), make(macro))
 

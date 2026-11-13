@@ -117,17 +117,28 @@ def test_tokens_come_only_from_the_owners_decisions(tmp_path: Path) -> None:
     with pytest.raises(VaultSealedError, match="has not approved"):
         issue_vault_token(root, "H-0001")
     log = root / OWNER_DECISIONS
-    append_owner_decision(log, kind=DecisionKind.GATE, subject="H-0001", summary="not a vault decision", recorded_at=NOW)
+    append_owner_decision(
+        log,
+        kind=DecisionKind.GATE,
+        subject="H-0001",
+        summary="not a vault decision",
+        recorded_at=NOW,
+    )
     with pytest.raises(VaultSealedError):
         issue_vault_token(root, "H-0001")
-    append_owner_decision(log, kind=DecisionKind.VAULT_ACCESS, subject="H-0001", summary="open it", recorded_at=NOW)
+    append_owner_decision(
+        log, kind=DecisionKind.VAULT_ACCESS, subject="H-0001", summary="open it", recorded_at=NOW
+    )
     assert issue_vault_token(root, "H-0001") == VaultToken("D-0002", "H-0001")
 
 
 def test_clocks_agree_with_the_ledger_rules(tmp_path: Path) -> None:
     root = write_registry(tmp_path, registered())
     card = _card(registered())
-    for segment, at in ((Segment.EXPLORATION, utc(2026, 11, 14)), (Segment.CONFIRMATION, utc(2028, 3, 1))):
+    for segment, at in (
+        (Segment.EXPLORATION, utc(2026, 11, 14)),
+        (Segment.CONFIRMATION, utc(2028, 3, 1)),
+    ):
         append_trial(
             root / TRIALS,
             hypothesis="H-0001",

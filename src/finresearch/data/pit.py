@@ -62,7 +62,9 @@ class VaultToken:
 def issue_vault_token(root: Path, hypothesis: str) -> VaultToken:
     """A token backed by the owner's latest ``vault_access`` decision for ``hypothesis``."""
     decisions = [OwnerDecision.model_validate(r) for r in read_chain(root / OWNER_DECISIONS)]
-    approvals = [d for d in decisions if d.kind is DecisionKind.VAULT_ACCESS and d.subject == hypothesis]
+    approvals = [
+        d for d in decisions if d.kind is DecisionKind.VAULT_ACCESS and d.subject == hypothesis
+    ]
     if not approvals:
         raise VaultSealedError(f"the owner has not approved opening the vault for {hypothesis}")
     return VaultToken(approvals[-1].decision_id, hypothesis)
@@ -79,10 +81,14 @@ class Clock:
         if self.vault_start is not None:
             object.__setattr__(self, "vault_start", ensure_utc(self.vault_start))
             if self.limit >= self.vault_start and self.token is None:
-                raise VaultSealedError(f"a clock reaching {self.limit} passes the vault start {self.vault_start}")
+                raise VaultSealedError(
+                    f"a clock reaching {self.limit} passes the vault start {self.vault_start}"
+                )
 
 
-def clock_for(card: HypothesisCard, segment: Segment, now: datetime, token: VaultToken | None = None) -> Clock:
+def clock_for(
+    card: HypothesisCard, segment: Segment, now: datetime, token: VaultToken | None = None
+) -> Clock:
     """The clock a run of ``card`` on ``segment`` is allowed (docs/protocol.md section 3)."""
     plan = card.plan
     vault_start = start_of_day(plan.vault.start)
@@ -127,7 +133,9 @@ class PointInTime:
         """Every observation public at ``t``, each in the version current at ``t``."""
         t = ensure_utc(t)
         if t > self._clock.limit:
-            raise LookaheadError(f"asked about {t.isoformat()}, but this run may only see up to {self._clock.limit}")
+            raise LookaheadError(
+                f"asked about {t.isoformat()}, but this run may only see up to {self._clock.limit}"
+            )
         vault_start = self._clock.vault_start
         if vault_start is not None and t >= vault_start:
             if self._clock.token is None:

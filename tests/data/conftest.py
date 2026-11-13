@@ -18,7 +18,9 @@ ROWS: list[tuple[str, datetime, datetime, float]] = [
 INGEST_DELAY = timedelta(hours=1)
 
 
-def make_table(rows: list[tuple[str, datetime, datetime, float]] = ROWS, name: str = "macro") -> PitTable:
+def make_table(
+    rows: list[tuple[str, datetime, datetime, float]] = ROWS, name: str = "macro"
+) -> PitTable:
     return PitTable(
         name,
         ("series",),

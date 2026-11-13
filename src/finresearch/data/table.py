@@ -59,8 +59,9 @@ class PitTable:
             if self.table.column(col).null_count:
                 raise TableError(f"{self.name}: column {col!r} has nulls")
         for col in TIME_COLUMNS:
-            if self.table.schema.field(col).type != TIME_TYPE:
-                raise TableError(f"{self.name}: {col!r} must be {TIME_TYPE}, got {self.table.schema.field(col).type}")
+            actual = self.table.schema.field(col).type
+            if actual != TIME_TYPE:
+                raise TableError(f"{self.name}: {col!r} must be {TIME_TYPE}, got {actual}")
         if set(self.keys) & set(TIME_COLUMNS):
             raise TableError(f"{self.name}: time columns cannot be keys")
         if self.table.num_rows:
@@ -92,17 +93,27 @@ class PitTable:
         canonical = self.canonical()
         with ipc.new_stream(sink, canonical.schema) as writer:
             writer.write_table(canonical)
-        return digest_bytes(self.name.encode() + b"\0" + json.dumps(list(self.keys)).encode() + b"\0" + sink.getvalue())
+        return digest_bytes(
+            self.name.encode()
+            + b"\0"
+            + json.dumps(list(self.keys)).encode()
+            + b"\0"
+            + sink.getvalue()
+        )
 
 
 def versions_as_of(t: PitTable, at: datetime) -> pa.Table:
     """For each observation, the latest version with ``available_at <= at``, in key/time order."""
     at = ensure_utc(at)
-    known = t.table.filter(pc.less_equal(t.table.column(AVAILABLE_AT), pa.scalar(at, type=TIME_TYPE)))
+    known = t.table.filter(
+        pc.less_equal(t.table.column(AVAILABLE_AT), pa.scalar(at, type=TIME_TYPE))
+    )
     ids = [*t.keys, EVENT_TIME]
     if known.num_rows == 0:
         return known
-    latest = known.group_by(ids).aggregate([(AVAILABLE_AT, "max")]).rename_columns([*ids, AVAILABLE_AT])
+    latest = (
+        known.group_by(ids).aggregate([(AVAILABLE_AT, "max")]).rename_columns([*ids, AVAILABLE_AT])
+    )
     out = known.join(latest, keys=[*ids, AVAILABLE_AT], join_type="inner")
     out = out.select(t.table.column_names)
     return out.sort_by([(c, "ascending") for c in ids]).combine_chunks()
