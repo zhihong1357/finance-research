@@ -27,14 +27,15 @@ Every refusal is an ``AccessRefusedError``. A refused query discloses nothing, a
 the run framework writes each one to ``registry/refusals.jsonl``.
 """
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 from finresearch.core.fingerprint import Fingerprint
 from finresearch.core.time import ensure_utc
-from finresearch.data.table import PitTable, Snapshot, versions_as_of
+from finresearch.data.partitioned import PartitionedTable
+from finresearch.data.table import PitTable, Snapshot, restrict, versions_as_of
 from finresearch.registry.ledger import read_chain
 from finresearch.registry.models import DecisionKind, HypothesisCard, OwnerDecision, Segment, Status
 from finresearch.registry.validate import OWNER_DECISIONS
@@ -134,17 +135,24 @@ class _Trace:
     vault_crossed: bool = False
 
 
+type Table = PitTable | PartitionedTable
+
+
 class PointInTime:
     """What could be known, and when.
 
     Hand one of these to research code, never a table or a path.
+
+    A small table is held in memory and fingerprinted whole. A large one is a
+    ``PartitionedTable``: queries read only the months they need, and the run's
+    provenance records the fingerprint of each partition read.
     """
 
     def __init__(
-        self, clock: Clock, tables: Iterable[PitTable], *, _trace: _Trace | None = None
+        self, clock: Clock, tables: Iterable[Table], *, _trace: _Trace | None = None
     ) -> None:
         self._clock = clock
-        self._tables: dict[str, PitTable] = {}
+        self._tables: dict[str, Table] = {}
         for t in tables:
             if t.name in self._tables:
                 raise ValueError(f"two tables named {t.name!r} behind one door")
@@ -182,14 +190,43 @@ class PointInTime:
             self._trace.vault_crossed = True
         return t
 
-    def as_of(self, name: str, t: datetime) -> Snapshot:
-        """Every observation of ``name`` public at ``t``, each in the version current at ``t``."""
-        t = self._check(t)
+    def _get(self, name: str) -> Table:
         table = self._tables.get(name)
         if table is None:
             raise KeyError(f"no table {name!r} behind this door (have {self.names})")
+        return table
+
+    def as_of(self, name: str, t: datetime) -> Snapshot:
+        """Every observation of ``name`` public at ``t``, each in the version current at ``t``."""
+        return self.window(name, None, t)
+
+    def window(
+        self,
+        name: str,
+        start: datetime | None,
+        t: datetime,
+        *,
+        where: Mapping[str, Collection[str]] | None = None,
+        columns: Sequence[str] | None = None,
+    ) -> Snapshot:
+        """Observations of ``name`` with ``event_time`` from ``start`` on, as known at ``t``.
+
+        ``where`` keeps only rows whose key columns take the listed values, for
+        example ``{"symbol": {"BTCUSDT"}}``; ``columns`` limits the other columns
+        (keys and the three times always come). For a partitioned table only the
+        months from ``start`` to ``t`` are read.
+        """
+        t = self._check(t)
+        if start is not None and ensure_utc(start) > t:
+            raise ValueError(f"the window starts at {start.isoformat()}, after {t.isoformat()}")
+        table = self._get(name)
+        if isinstance(table, PartitionedTable):
+            w = table.window(start, t, where, columns)
+            self._trace.used.update(w.used)
+            return Snapshot(name, t, w.table)
         self._trace.used[name] = table.fingerprint
-        return Snapshot(name, t, versions_as_of(table, t))
+        rows = restrict(versions_as_of(table, t), table.keys, start, where, columns)
+        return Snapshot(name, t, rows)
 
     def latest(self, name: str) -> Snapshot:
         """``as_of`` the clock limit: everything this door may see."""

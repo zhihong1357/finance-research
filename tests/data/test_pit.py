@@ -192,3 +192,27 @@ def test_clocks_agree_with_the_ledger_rules(tmp_path: Path) -> None:
         )
         write_report(root, trial)
     assert check(root) == []
+
+
+def test_a_window_narrows_an_in_memory_table(macro: PitTable) -> None:
+    pit = PointInTime(Clock(limit=utc(2026, 12, 1)), [macro])
+    snap = pit.window("macro", utc(2026, 10, 1), utc(2026, 12, 1))
+    assert snap.column("value") == [2.9]  # October CPI only: September is before the window
+    snap = pit.window("macro", None, utc(2026, 12, 1), where={"series": {"PPI"}}, columns=[])
+    assert snap.rows() == [
+        {
+            "series": "PPI",
+            "event_time": utc(2026, 9, 30),
+            "available_at": utc(2026, 10, 16, 12, 30),
+            "ingested_at": utc(2026, 10, 16, 13, 30),
+        }
+    ]
+    assert list(pit.used) == ["macro"]
+
+
+def test_a_window_cannot_end_before_it_starts(macro: PitTable) -> None:
+    pit = PointInTime(Clock(limit=utc(2026, 12, 1)), [macro])
+    with pytest.raises(ValueError, match="after"):
+        pit.window("macro", utc(2026, 11, 2), utc(2026, 11, 1))
+    with pytest.raises(LookaheadError):
+        pit.window("macro", None, utc(2026, 12, 2))
