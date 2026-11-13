@@ -1,0 +1,8 @@
+id = "synthetic.thin_slice"
+name = "细线合成数据（Phase 1.6）"
+url = "synthetic://thin-slice"
+access = "archive"
+redownloadable = true
+event_time = "指标或收益所属月份的第一天零点（UTC）"
+available_at = "公布日零点（UTC）：指标首发值在月份结束后 15 天，修订值在 45 天；收益在月份结束时"
+known_issues = ["由代码按固定种子生成（src/finresearch/sources/synthetic.py，参数在 config/studies/thin_slice.toml），不含任何真实市场的特征"]

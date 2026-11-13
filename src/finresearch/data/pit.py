@@ -14,19 +14,27 @@ in code, rather than left to discipline:
   owner's ``vault_access`` decision for that hypothesis in
   ``registry/owner_decisions.jsonl``.
 
+Research code never holds a table. The run framework opens the door over a
+set of tables and hands the study only the door; the study asks for tables by
+name. For a decision taken at instant ``t`` the study works inside
+``pit.view(t)``, a door whose clock stops at ``t``: anything published later is
+not merely discouraged but unreachable.
+
 The door also records which tables were read, with their fingerprints, so the
 run's provenance (``RunManifest.data``) is filled in by construction.
+
+Every refusal is an ``AccessRefusedError``. A refused query discloses nothing, and
+the run framework writes each one to ``registry/refusals.jsonl``.
 """
 
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
-import pyarrow as pa
-
 from finresearch.core.fingerprint import Fingerprint
 from finresearch.core.time import ensure_utc
-from finresearch.data.table import PitTable, versions_as_of
+from finresearch.data.table import PitTable, Snapshot, versions_as_of
 from finresearch.registry.ledger import read_chain
 from finresearch.registry.models import DecisionKind, HypothesisCard, OwnerDecision, Segment, Status
 from finresearch.registry.validate import OWNER_DECISIONS
@@ -34,12 +42,20 @@ from finresearch.registry.validate import OWNER_DECISIONS
 _ONE_MICROSECOND = timedelta(microseconds=1)
 
 
-class LookaheadError(RuntimeError):
-    """A query asked about an instant after the run's clock limit."""
+class AccessRefusedError(RuntimeError):
+    """The door refused a request. Nothing was disclosed."""
 
 
-class VaultSealedError(RuntimeError):
+class LookaheadError(AccessRefusedError):
+    """A query asked about an instant after the clock limit."""
+
+
+class VaultSealedError(AccessRefusedError):
     """The vault was reached without the owner's approval."""
+
+
+class NotRegisteredError(AccessRefusedError):
+    """Confirmation, vault or forward data was requested for an unregistered hypothesis."""
 
 
 def start_of_day(d: date) -> datetime:
@@ -99,7 +115,9 @@ def clock_for(
             raise ValueError(f"{card.id} has no exploration segment")
         return Clock(limit=end_of_day(plan.exploration.end), vault_start=vault_start)
     if card.status is not Status.REGISTERED:
-        raise ValueError(f"{segment} runs need {card.id} to be registered (it is {card.status})")
+        raise NotRegisteredError(
+            f"{segment} runs need {card.id} to be registered (it is {card.status})"
+        )
     if segment is Segment.CONFIRMATION:
         return Clock(limit=end_of_day(plan.confirmation.end), vault_start=vault_start)
     if token is None or token.hypothesis != card.id:
@@ -108,44 +126,77 @@ def clock_for(
     return Clock(limit=limit, vault_start=vault_start, token=token)
 
 
-class PointInTime:
-    """What could be known, and when. Hand one of these to research code, never a file path."""
+@dataclass
+class _Trace:
+    """Shared by a door and every view of it, so the run's provenance sees all reads."""
 
-    def __init__(self, clock: Clock) -> None:
+    used: dict[str, Fingerprint] = field(default_factory=lambda: dict[str, Fingerprint]())
+    vault_crossed: bool = False
+
+
+class PointInTime:
+    """What could be known, and when.
+
+    Hand one of these to research code, never a table or a path.
+    """
+
+    def __init__(
+        self, clock: Clock, tables: Iterable[PitTable], *, _trace: _Trace | None = None
+    ) -> None:
         self._clock = clock
-        self._used: dict[str, Fingerprint] = {}
-        self._vault_crossed = False
+        self._tables: dict[str, PitTable] = {}
+        for t in tables:
+            if t.name in self._tables:
+                raise ValueError(f"two tables named {t.name!r} behind one door")
+            self._tables[t.name] = t
+        self._trace = _trace or _Trace()
 
     @property
     def clock(self) -> Clock:
         return self._clock
 
     @property
+    def names(self) -> list[str]:
+        return sorted(self._tables)
+
+    @property
     def used(self) -> dict[str, Fingerprint]:
         """Fingerprint of every table read so far, by name: the run's ``RunManifest.data``."""
-        return dict(sorted(self._used.items()))
+        return dict(sorted(self._trace.used.items()))
 
     @property
     def vault_crossed(self) -> bool:
-        return self._vault_crossed
+        return self._trace.vault_crossed
 
-    def as_of(self, table: PitTable, t: datetime) -> pa.Table:
-        """Every observation public at ``t``, each in the version current at ``t``."""
+    def _check(self, t: datetime) -> datetime:
         t = ensure_utc(t)
         if t > self._clock.limit:
             raise LookaheadError(
-                f"asked about {t.isoformat()}, but this run may only see up to {self._clock.limit}"
+                f"asked about {t.isoformat()}, but this door may only see up to "
+                f"{self._clock.limit.isoformat()}"
             )
         vault_start = self._clock.vault_start
         if vault_start is not None and t >= vault_start:
             if self._clock.token is None:
                 raise VaultSealedError(f"{t.isoformat()} is inside the sealed vault")
-            self._vault_crossed = True
-        known = self._used.setdefault(table.name, table.fingerprint)
-        if known != table.fingerprint:
-            raise ValueError(f"two different tables named {table.name!r} in one run")
-        return versions_as_of(table, t)
+            self._trace.vault_crossed = True
+        return t
 
-    def latest(self, table: PitTable) -> pa.Table:
-        """``as_of`` the clock limit: everything this run may see."""
-        return self.as_of(table, self._clock.limit)
+    def as_of(self, name: str, t: datetime) -> Snapshot:
+        """Every observation of ``name`` public at ``t``, each in the version current at ``t``."""
+        t = self._check(t)
+        table = self._tables.get(name)
+        if table is None:
+            raise KeyError(f"no table {name!r} behind this door (have {self.names})")
+        self._trace.used[name] = table.fingerprint
+        return Snapshot(name, t, versions_as_of(table, t))
+
+    def latest(self, name: str) -> Snapshot:
+        """``as_of`` the clock limit: everything this door may see."""
+        return self.as_of(name, self._clock.limit)
+
+    def view(self, t: datetime) -> PointInTime:
+        """The same tables behind a clock that stops at ``t``: the door for a decision at ``t``."""
+        t = self._check(t)
+        clock = Clock(limit=t, vault_start=self._clock.vault_start, token=self._clock.token)
+        return PointInTime(clock, self._tables.values(), _trace=self._trace)

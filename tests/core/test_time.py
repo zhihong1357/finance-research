@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 from hypothesis import given
@@ -13,6 +13,7 @@ from finresearch.core.time import (
     format_utc,
     from_epoch_ms,
     from_epoch_us,
+    month_start,
     parse_utc,
     to_epoch_ms,
     to_epoch_us,
@@ -121,3 +122,15 @@ def test_floor_time_properties(t: datetime, step: timedelta) -> None:
     f = floor_time(t, step)
     assert f <= t < f + step
     assert floor_time(f, step) == f
+
+
+def test_month_start() -> None:
+    assert month_start(date(2026, 11, 13)) == date(2026, 11, 1)
+    assert month_start(date(2026, 11, 13), 2) == date(2027, 1, 1)
+    assert month_start(date(2026, 1, 31), -1) == date(2025, 12, 1)
+    assert month_start(date(2000, 3, 1), -26) == date(1998, 1, 1)
+
+
+@given(st.dates(min_value=date(1900, 1, 1), max_value=date(2100, 12, 31)), st.integers(-600, 600))
+def test_month_start_round_trips(d: date, k: int) -> None:
+    assert month_start(month_start(d, k), -k) == month_start(d)

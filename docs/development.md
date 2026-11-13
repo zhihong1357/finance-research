@@ -12,6 +12,8 @@
 
 建议在仓库设置里为 `main` 分支开启保护：要求"检查"通过才能合并。这样即使一时疏忽，不合格的改动也进不来。
 
+合并拉取请求时请用默认的 **Create a merge commit**，不要选 Squash and merge 或 Rebase and merge。账本记录的是分支上的提交，压缩或变基会让这些提交从历史里消失，试验就无法重跑。可以在仓库设置的 General → Pull Requests 里只保留 Allow merge commits，从根上避免选错。
+
 ### 检查的内容
 
 | 检查 | 拦住什么 |
@@ -22,6 +24,8 @@
 | 测试 | 计算结果与手算的期望值不符；测试试图访问网络；文档里的链接指向不存在的文件 |
 | 注册表 | 假说卡、账本、数据源等格式不对；违反科研规程，例如确认检验早于注册、金库没有你的批准 |
 | 注册表历史只增不改 | 账本里已有的记录被改动或删除；已注册的检验方案被改动 |
+| 账本引用的代码版本都在历史里 | 账本记录了某个代码版本，但它已经不在仓库历史里（例如拉取请求被压缩合并），那次试验就无法重跑 |
+| 重现合成数据上的试验 | 切回账本记录的代码版本，从空白状态重跑，结果指纹或输出指纹与账本不一致 |
 
 ## 给 AI 会话
 
@@ -35,7 +39,20 @@ uv run pyright            # 类型检查
 uv run pytest             # 测试
 uv run finresearch registry check                          # 注册表
 uv run finresearch registry check-append-only --base main  # 历史只增不改
+uv run finresearch registry check-commits                  # 账本引用的提交都在历史里
+uv run finresearch run --study thin_slice --hypothesis H-0001 --segment exploration
+uv run finresearch reproduce --synthetic                   # 从空白状态重跑合成数据上的试验
 ```
+
+### 记一次试验
+
+1. 先把代码、配置和假说卡全部提交。工作区有任何未提交的改动，程序都拒绝入账。
+2. 在干净的工作区上运行 `uv run finresearch run ... --record`。程序追加账本、写出 `reports/<试验编号>.md`。
+3. 把账本和报告作为下一个提交，不要和代码改动混在一起。
+
+账本记录的是第 1 步的提交。持续集成会切回这个提交重跑，所以它必须留在历史里（合并提交，不压缩、不变基）。
+
+结果指纹包含环境指纹（锁定文件、Python 版本、处理器架构、操作系统）。本地会话与持续集成的环境一致（CPython 3.14、x86_64、Linux），在本地记的账能在持续集成里重现；环境不同时结果指纹会不同，重现会报告不一致。
 
 提交之前这些都要在本地通过。持续集成运行的是同样的命令。
 

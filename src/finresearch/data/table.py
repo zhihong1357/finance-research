@@ -19,10 +19,12 @@ All three time columns are ``timestamp[us, tz=UTC]`` and never null.
 
 import io
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -100,6 +102,39 @@ class PitTable:
             + b"\0"
             + sink.getvalue()
         )
+
+
+def pit_table(name: str, keys: tuple[str, ...], columns: Mapping[str, Sequence[Any]]) -> PitTable:
+    """A table from plain Python columns; the three time columns get ``TIME_TYPE``."""
+    arrays = {
+        col: pa.array(values, type=TIME_TYPE) if col in TIME_COLUMNS else pa.array(values)
+        for col, values in columns.items()
+    }
+    return PitTable(name, keys, pa.table(arrays))
+
+
+@dataclass(frozen=True)
+class Snapshot:
+    """What a query through the point-in-time door returns: one table as known at ``at``."""
+
+    name: str
+    at: datetime
+    table: pa.Table
+
+    @property
+    def num_rows(self) -> int:
+        return int(self.table.num_rows)
+
+    def column(self, name: str) -> list[Any]:
+        values: list[Any] = list(self.table.column(name).to_pylist())
+        return [ensure_utc(v) for v in values] if name in TIME_COLUMNS else values
+
+    def rows(self) -> list[dict[str, Any]]:
+        """Plain dictionaries; time columns as ``datetime`` in ``datetime.UTC``."""
+        return [
+            {k: ensure_utc(v) if k in TIME_COLUMNS else v for k, v in row.items()}
+            for row in self.table.to_pylist()
+        ]
 
 
 def versions_as_of(t: PitTable, at: datetime) -> pa.Table:

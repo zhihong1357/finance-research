@@ -60,6 +60,9 @@ select = [
     "PLR2004",  # no magic numbers in code: tunable numbers live in config (CLAUDE.md)
     "RUF",      # ruff-specific
 ]
+ignore = [
+    "RUF001",   # reports and notices are Chinese (CLAUDE.md); full-width punctuation is correct there
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["finresearch", "tests"]

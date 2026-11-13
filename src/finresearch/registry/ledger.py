@@ -1,4 +1,4 @@
-"""Append-only, hash-chained JSON Lines files: the trial ledger and the owner's decisions.
+"""Append-only, hash-chained JSON Lines files: trials, owner decisions, refusals.
 
 Every line is the canonical JSON of one record (``core.fingerprint``) and
 carries ``prev``: the fingerprint of the line before it (``null`` on the first
@@ -18,6 +18,8 @@ from finresearch.core.time import ensure_utc
 from finresearch.registry.models import (
     DecisionKind,
     OwnerDecision,
+    Refusal,
+    RefusalKind,
     Segment,
     TrialRecord,
 )
@@ -77,7 +79,9 @@ def append_trial(
     hypothesis: str,
     segment: Segment,
     manifest: RunManifest,
+    config: dict[str, Any],
     metrics: dict[str, float],
+    output_fingerprint: Fingerprint,
     recorded_at: datetime,
     vault_approval: str | None = None,
 ) -> TrialRecord:
@@ -89,7 +93,9 @@ def append_trial(
         hypothesis=hypothesis,
         segment=segment,
         manifest=manifest.to_dict(),
+        config=config,
         result_fingerprint=str(manifest.fingerprint),
+        output_fingerprint=str(output_fingerprint),
         metrics=metrics,
         vault_approval=vault_approval,
         prev=_head(existing),
@@ -116,6 +122,36 @@ def append_owner_decision(
         subject=subject,
         summary=summary,
         basis=basis or [],
+        prev=_head(existing),
+    )
+    _append(path, record.model_dump(mode="json"))
+    return record
+
+
+def append_refusal(
+    path: Path,
+    *,
+    hypothesis: str,
+    segment: Segment,
+    study: str,
+    kind: RefusalKind,
+    detail: str,
+    commit: str,
+    dirty: bool,
+    recorded_at: datetime,
+) -> Refusal:
+    """Validate and append one refusal; returns the record as written."""
+    existing = read_chain(path)
+    record = Refusal(
+        refusal_id=f"Q-{len(existing) + 1:06d}",
+        recorded_at=ensure_utc(recorded_at),
+        hypothesis=hypothesis,
+        segment=segment,
+        study=study,
+        kind=kind,
+        detail=detail,
+        commit=commit,
+        dirty=dirty,
         prev=_head(existing),
     )
     _append(path, record.model_dump(mode="json"))

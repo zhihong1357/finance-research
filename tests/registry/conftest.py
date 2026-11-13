@@ -8,8 +8,10 @@ import pytest
 
 from finresearch.core.fingerprint import digest_bytes, digest_value
 from finresearch.core.provenance import CodeVersion, RunManifest
-from finresearch.core.time import utc
-from finresearch.registry.models import plan_fingerprint
+from finresearch.core.time import format_utc, utc
+from finresearch.registry.models import TrialRecord, plan_fingerprint
+from finresearch.registry.validate import REPORTS
+from finresearch.report.standard import Header, render
 
 CARD = """\
 id = "H-0001"
@@ -65,6 +67,9 @@ available_at = "time of the request"
 """
 
 REGISTERED_AT = "2026-11-20T00:00:00Z"
+CONFIG = {"lookback": 20}
+BODY = "output\n"  # a stand-in report body; its fingerprint is every test trial's output
+OUTPUT = digest_bytes(BODY.encode())
 
 
 def registered(card: str = CARD, at: str = REGISTERED_AT) -> str:
@@ -79,7 +84,7 @@ def manifest(clock_limit: datetime | None = END_OF_EXPLORATION, dirty: bool = Fa
     return RunManifest(
         code=CodeVersion("a" * 40, dirty=dirty),
         environment=digest_bytes(b"environment"),
-        config=digest_value({"lookback": 20}),
+        config=digest_value(CONFIG),
         data={"deribit.book_summary": digest_bytes(b"data")},
         seed=0,
         clock_limit=clock_limit,
@@ -99,3 +104,19 @@ def write_registry(root: Path, card: str | None = CARD, source: str | None = SOU
 @pytest.fixture
 def root(tmp_path: Path) -> Path:
     return write_registry(tmp_path)
+
+
+def write_report(root: Path, trial: TrialRecord, body: str = BODY) -> Path:
+    """The standard report the run framework would have written next to ``trial``."""
+    header = Header(
+        trial_id=trial.trial_id,
+        recorded_at=format_utc(trial.recorded_at),
+        hypothesis=trial.hypothesis,
+        segment=str(trial.segment),
+        result_fingerprint=trial.result_fingerprint,
+        output_fingerprint=trial.output_fingerprint,
+    )
+    path = root / REPORTS / f"{trial.trial_id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render(header, body), encoding="utf-8")
+    return path
