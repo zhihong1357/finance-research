@@ -18,13 +18,19 @@ class Response:
     content: bytes
 
 
+class SourceError(RuntimeError):
+    """A source could not be fetched: the network, the server, or what it sent back."""
+
+
 @dataclass(frozen=True, slots=True)
 class Adapter:
     """A data source: ``fetch`` returns raw responses, ``parse`` turns one into a table.
 
-    ``id`` is the source's entry in ``registry/sources/``.
+    ``fetch`` gets the source's configuration and the present instant; it raises
+    ``SourceError`` when the source cannot be fetched. ``id`` is the source's
+    entry in ``registry/sources/``.
     """
 
     id: str
-    fetch: Callable[[Mapping[str, Any]], list[Response]]
+    fetch: Callable[[Mapping[str, Any], datetime], list[Response]]
     parse: Callable[[bytes, datetime], PitTable]

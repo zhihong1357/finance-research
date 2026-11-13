@@ -1,0 +1,23 @@
+# 采集与监控（Phase 2.2）。每个数据源属于一个定时组；定时组的 cron 必须与
+# .github/workflows/collect.yml 里的一致（有测试核对）。时间一律是 UTC。
+
+[groups.every8h]
+cron = "17 */8 * * *"           # 每 8 小时，在第 17 分钟（避开整点的拥挤）
+
+[sources."heartbeat.canary"]
+group = "every8h"
+max_age_hours = 17              # 超过这么久没有新记录就算中断：两次运行的间隔加一小时余量
+added = "2026-11-14T00:00:00Z"  # 加入的时刻；在此之后 max_age_hours 内还没有数据不算中断
+enabled = true
+
+[sources."heartbeat.drill"]
+group = "every8h"
+max_age_hours = 17
+added = "2026-11-13T00:00:00Z"  # 故意早于上限：合并后第一次监控就应当开出中断问题
+enabled = true
+simulate_failure = true         # Phase 2.2 验收：故意中断，检验通知；验收后改为 false 检验恢复
+
+[monitor]
+issue_marker = "finresearch:outage"   # 监控开的问题里带这个标记，用来认出自己开过的问题
+inactivity_warn_days = 45             # 公开仓库 60 天无活动会停用定时任务；45 天时提醒所有者
+scheduled_workflows = [".github/workflows/collect.yml", ".github/workflows/monitor.yml"]

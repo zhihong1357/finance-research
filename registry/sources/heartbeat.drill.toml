@@ -1,0 +1,8 @@
+id = "heartbeat.drill"
+name = "心跳：中断演练（Phase 2.2）"
+url = "heartbeat://heartbeat.drill"
+access = "snapshot"
+redownloadable = false
+event_time = "写入记录的时刻（UTC）"
+available_at = "同上"
+known_issues = ["不是市场数据。config/collect.toml 里 simulate_failure = true 时每次都故意失败，用来演练中断通知"]

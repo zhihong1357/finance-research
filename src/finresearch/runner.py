@@ -113,13 +113,13 @@ def study_config(name: str) -> dict[str, Any]:
     return {"study": name, **load_toml(f"studies/{name}")}
 
 
-def build_tables(study: Study, config: dict[str, Any], work: Path) -> list[PitTable]:
+def build_tables(study: Study, config: dict[str, Any], work: Path, now: datetime) -> list[PitTable]:
     """Fetch -> raw layer -> normalized layer -> tables, inside ``work``."""
     store = RawStore(work)
     tables: list[PitTable] = []
     for source in study.sources:
         adapter = ADAPTERS[source]
-        for r in adapter.fetch(config):
+        for r in adapter.fetch(config, now):
             store.save(source, r.name, r.url, r.fetched_at, r.content)
         directory = work / "tables" / source
         normalize(store, source, adapter.parse, directory)
@@ -164,7 +164,7 @@ def execute(
     try:
         token = issue_vault_token(root, hypothesis) if segment in _NEEDS_TOKEN else None
         clock = clock_for(card, segment, now, token)
-        pit = PointInTime(clock, build_tables(study, config, work))
+        pit = PointInTime(clock, build_tables(study, config, work, now))
         result = study.compute(pit, config)
     except AccessRefusedError as exc:
         _refuse(root, exc, code, hypothesis, segment, study_name, recorded_at)

@@ -1,0 +1,8 @@
+id = "heartbeat.canary"
+name = "心跳：采集流程的金丝雀（Phase 2.2）"
+url = "heartbeat://heartbeat.canary"
+access = "snapshot"
+redownloadable = false
+event_time = "写入记录的时刻（UTC）"
+available_at = "同上"
+known_issues = ["不是市场数据。只证明定时任务、远程存储和令牌都在正常工作"]
