@@ -3,11 +3,12 @@
 Each response is stored byte-for-byte (gzip with a fixed header, so identical
 input gives identical files) next to a metadata file::
 
-    <root>/raw/<source>/<YYYY-MM-DD>/<name>-<HHMMSS>Z.json.gz
-    <root>/raw/<source>/<YYYY-MM-DD>/<name>-<HHMMSS>Z.meta.json
+    <root>/raw/<source>/<YYYY>/<MM>/<DD>/<name>-<HHMMSS>Z.json.gz
+    <root>/raw/<source>/<YYYY>/<MM>/<DD>/<name>-<HHMMSS>Z.meta.json
 
 The metadata records where the bytes came from and their fingerprint. Nothing
-is ever overwritten.
+is ever overwritten. Year and month folders keep every folder far below the
+remote store's limit of 10,000 entries (decision 0003).
 """
 
 import gzip
@@ -52,7 +53,7 @@ class RawStore:
         self, source: str, name: str, url: str, fetched_at: datetime, content: bytes
     ) -> RawRecord:
         fetched_at = ensure_utc(fetched_at)
-        day = self.root / "raw" / source / fetched_at.date().isoformat()
+        day = self.root / "raw" / source / fetched_at.strftime("%Y/%m/%d")
         stem = f"{name}-{fetched_at.strftime('%H%M%S')}Z"
         data_path, meta_path = day / f"{stem}.json.gz", day / f"{stem}.meta.json"
         if data_path.exists() or meta_path.exists():

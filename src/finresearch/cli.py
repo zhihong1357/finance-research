@@ -3,6 +3,7 @@
 ``finresearch registry check | check-append-only | check-commits | plan-fingerprint``
 ``finresearch run``        run a study for a hypothesis; ``--record`` enters it in the ledger
 ``finresearch reproduce``  rerun recorded trials from a blank state and compare fingerprints
+``finresearch storage selftest``  write to the remote store, read back, compare, time it
 """
 
 import argparse
@@ -13,8 +14,12 @@ import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
+from finresearch.core.config import load_toml
 from finresearch.core.time import format_utc, parse_utc
+from finresearch.data.hub import HubRemote
 from finresearch.data.pit import AccessRefusedError
+from finresearch.data.selftest import selftest
+from finresearch.data.store import Limits, StoreError
 from finresearch.registry.appendonly import check_append_only, check_commits
 from finresearch.registry.ledger import read_chain
 from finresearch.registry.models import Refusal, Segment, Universe, plan_fingerprint
@@ -67,7 +72,29 @@ def _parser() -> argparse.ArgumentParser:
     which.add_argument("--trial", help="one trial, e.g. T-000001")
     which.add_argument("--synthetic", action="store_true", help="every trial on synthetic data")
     p.add_argument("--root", type=Path, default=Path())
+
+    st = sub.add_parser("storage", help="the remote store").add_subparsers(
+        dest="cmd", required=True
+    )
+    t = st.add_parser("selftest", help="write, read back and compare; needs HF_TOKEN, HF_DATASET")
+    t.add_argument("--run-id", help="folder name for this check (default: the current time)")
     return ap
+
+
+def _selftest(args: argparse.Namespace) -> int:
+    cfg = load_toml("storage")
+    run_id = args.run_id or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    try:
+        remote = HubRemote.from_environment(cfg["hub"])
+        with tempfile.TemporaryDirectory(prefix="finresearch-selftest-") as tmp:
+            report = selftest(
+                remote, Path(tmp), cfg["selftest"], Limits.from_config(cfg["hub"]), run_id
+            )
+    except StoreError as exc:
+        print(f"error: {exc}")
+        return 1
+    print(report.to_json())
+    return 0 if report.ok else 1
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -134,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run(args)
         if args.area == "reproduce":
             return _reproduce(args)
+        if args.area == "storage":
+            return _selftest(args)
     except RunError as exc:
         print(f"error: {exc}")
         return 1
