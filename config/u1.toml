@@ -1,0 +1,15 @@
+# 研究宇宙 U1 的 1 分钟数据（Phase 2.5，决策 0010）。
+
+[bars]
+format = 1                      # 表格式版本：表结构一变就加一，写进新目录，旧分区不被覆盖
+
+[binance]
+# 只加工 USDT 永续合约，含已下架的。交割合约（带 _日期）、USDC 和 BUSD 合约不进；
+# 目录名以 SETTLED 结尾的也不进：它们不是另一个合约，而是原品种数据的重复或交割暂停期（数据源目录）
+universe = '^[^_]+USDT$'
+part = "binance"                # 分区里"部分"的名字
+monthly = "binance.um.klines_1m.monthly"   # 优先用月度文件
+daily = "binance.um.klines_1m.daily"       # 某个品种某个月没有月度文件时，改用逐日文件
+settle_days = 7                 # 一个月结束后等几天再加工：月度文件在下个月初陆续出现
+workers = 16                    # 并行下载、核对、解析的线程数
+batch = 64                      # 每批处理的品种数：限制内存里同时存在的表

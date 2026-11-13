@@ -39,6 +39,13 @@ sub = "1m/"
 added = "2026-11-15T00:00:00Z"
 enabled = true
 
+[datasets."binance.um.klines_1m.monthly"]
+exchange = "binance"
+root = "data/futures/um/monthly/klines/"   # 加工 1 分钟数据用月度文件（2.5.3）：文件数是逐日的约三十分之一
+sub = "1m/"
+added = "2026-11-15T00:00:00Z"
+enabled = true
+
 [datasets."binance.um.mark_1m.daily"]
 exchange = "binance"
 root = "data/futures/um/daily/markPriceKlines/"

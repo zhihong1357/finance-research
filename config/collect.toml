@@ -47,4 +47,5 @@ scheduled_workflows = [
   ".github/workflows/collect.yml",
   ".github/workflows/monitor.yml",
   ".github/workflows/archive.yml",
+  ".github/workflows/u1-bars.yml",
 ]

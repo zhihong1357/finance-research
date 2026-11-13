@@ -1,13 +1,21 @@
+import itertools
+import tempfile
 from datetime import date, datetime
 from pathlib import Path
 
+import pyarrow as pa
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from finresearch.core.time import utc
+from finresearch.data import bars
+from finresearch.data.fixed import parse
 from finresearch.data.partitioned import (
     PartitionCard,
     PartitionedTable,
     PartitionError,
+    PartitionWriter,
     month_dir,
     write_partition,
 )
@@ -47,7 +55,6 @@ def test_a_partition_has_a_card_that_describes_it(tmp_path: Path) -> None:
     folder = tmp_path / month_dir("macro", 1, SEPTEMBER)
     assert sorted(p.name for p in folder.iterdir()) == ["main.json", "main.parquet"]
     assert PartitionCard.from_json((folder / "main.json").read_text()) == sep
-    assert sep.fingerprint == str(_split()[SEPTEMBER].fingerprint)
 
 
 def test_the_same_table_gives_the_same_bytes(tmp_path: Path) -> None:
@@ -55,6 +62,45 @@ def test_the_same_table_gives_the_same_bytes(tmp_path: Path) -> None:
     assert a == b
     path = month_dir("macro", 1, SEPTEMBER) + "/main.parquet"
     assert (tmp_path / "a" / path).read_bytes() == (tmp_path / "b" / path).read_bytes()
+
+
+def test_pieces_added_in_order_give_the_same_partition(tmp_path: Path) -> None:
+    whole = _split()[SEPTEMBER]
+    one = write_partition(whole, tmp_path / "one", 1, SEPTEMBER, "main", {}, ROW_GROUP)
+    rows = whole.canonical()
+    writer = PartitionWriter(
+        tmp_path / "two", "macro", ("series",), 1, SEPTEMBER, "main", ROW_GROUP
+    )
+    writer.add(PitTable("macro", ("series",), rows.slice(0, 1)))  # CPI, first version
+    writer.add(PitTable("macro", ("series",), rows.slice(1, 2)))  # CPI revised, then PPI
+    two = writer.close({})
+    assert (two.fingerprint, two.sha256, two.single_version) == (
+        one.fingerprint,
+        one.sha256,
+        False,  # the revision spans the two pieces
+    )
+
+
+def test_pieces_out_of_order_are_refused(tmp_path: Path) -> None:
+    rows = _split()[SEPTEMBER].canonical()
+    writer = PartitionWriter(tmp_path, "macro", ("series",), 1, SEPTEMBER, "main", ROW_GROUP)
+    writer.add(PitTable("macro", ("series",), rows.slice(2, 1)))  # PPI
+    with pytest.raises(PartitionError, match="out of order"):
+        writer.add(PitTable("macro", ("series",), rows.slice(0, 1)))  # CPI
+    with pytest.raises(PartitionError, match="added to a partition of macro"):
+        writer.add(make_table(name="other"))
+    with pytest.raises(PartitionError, match="no rows"):
+        PartitionWriter(tmp_path, "macro", ("series",), 1, OCTOBER, "x", ROW_GROUP).close({})
+
+
+def test_notes_are_kept_on_the_card(tmp_path: Path) -> None:
+    writer = PartitionWriter(tmp_path, "macro", ("series",), 1, OCTOBER, "main", ROW_GROUP)
+    writer.add(_split()[OCTOBER])
+    card = writer.close({}, ["low above open or close: 1 bar(s)"])
+    assert card.notes == ["low above open or close: 1 bar(s)"]
+    folder = tmp_path / month_dir("macro", 1, OCTOBER)
+    assert PartitionCard.from_json((folder / "main.json").read_text()).notes == card.notes
+    assert not list(folder.glob("*.part"))
 
 
 def test_rows_outside_the_month_are_refused(tmp_path: Path) -> None:
@@ -142,3 +188,31 @@ def test_a_view_keeps_partitioned_tables_behind_its_clock(tmp_path: Path) -> Non
     assert view.latest("macro").column("value") == [3.0, 1.0]
     with pytest.raises(LookaheadError):
         view.as_of("macro", utc(2026, 11, 2))
+
+
+def _minutes(n: int, symbol: str) -> PitTable:
+    start = int(utc(2026, 10, 1).timestamp()) * 1_000_000
+    price = [f"{100 + i % 7}.{i % 10}" for i in range(n)]
+    qty = [f"{i % 5}.000" for i in range(n)]
+    values = {c: parse(price) for c in bars.PRICES} | {c: parse(qty) for c in bars.QUANTITIES}
+    trades = pa.array([i % 5 for i in range(n)], pa.int64())
+    starts = pa.array([start + i * 60_000_000 for i in range(n)], pa.int64())
+    return bars.bars("binance", symbol, starts, values, trades, utc(2026, 11, 2))
+
+
+@settings(max_examples=25)
+@given(st.lists(st.integers(1, 59), max_size=6, unique=True))
+def test_the_fingerprint_does_not_depend_on_how_rows_were_added(cuts: list[int]) -> None:
+    whole = pa.concat_tables([_minutes(60, "AAAUSDT").table, _minutes(30, "BBBUSDT").table])
+    table = PitTable(bars.NAME, bars.KEYS, whole).canonical()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        one = write_partition(
+            PitTable(bars.NAME, bars.KEYS, table), root / "1", 1, OCTOBER, "b", {}, 7
+        )
+        writer = PartitionWriter(root / "n", bars.NAME, bars.KEYS, 1, OCTOBER, "b", 7)
+        edges = [0, *sorted(cuts), table.num_rows]
+        for a, b in itertools.pairwise(edges):
+            writer.add(PitTable(bars.NAME, bars.KEYS, table.slice(a, b - a)))
+        many = writer.close({})
+    assert (many.fingerprint, many.sha256, many.rows) == (one.fingerprint, one.sha256, 90)
