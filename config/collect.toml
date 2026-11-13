@@ -13,9 +13,9 @@ enabled = true
 [sources."heartbeat.drill"]
 group = "every8h"
 max_age_hours = 17
-added = "2026-11-13T00:00:00Z"  # 故意早于上限：合并后第一次监控就应当开出中断问题
+added = "2026-11-13T00:00:00Z"
 enabled = true
-simulate_failure = true         # Phase 2.2 验收：故意中断，检验通知；验收后改为 false 检验恢复
+simulate_failure = false        # Phase 2.2 验收：中断通知已验证（问题 #16），现在检验恢复后自动关闭
 
 [monitor]
 issue_marker = "finresearch:outage"   # 监控开的问题里带这个标记，用来认出自己开过的问题
