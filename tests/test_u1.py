@@ -39,6 +39,16 @@ CFG: dict[str, Any] = {
             "format": 1,
             "binance": {"monthly": "f", "settle_days": 7, "workers": 2, "batch": 1},
         },
+        "u1.mark_1m": {
+            "format": 1,
+            "binance": {
+                "monthly": "pm",
+                "daily": "pd",
+                "settle_days": 7,
+                "workers": 2,
+                "batch": 1,
+            },
+        },
     },
 }
 BINANCE = u1.job(CFG, BARS, "binance")
@@ -66,15 +76,18 @@ class FakeArchive:
         self.files: dict[str, bytes] = {}
         self.entries: dict[str, list[ManifestEntry]] = {"m": [], "d": []}
 
-    def put(self, dataset: str, symbol: str, period: str, rows: list[str]) -> None:
-        kind = "monthly" if dataset == "m" else "daily"
+    def put(
+        self, dataset: str, symbol: str, period: str, rows: list[str], folder: str = "klines"
+    ) -> None:
+        """A kline-shaped file; datasets ending in ``m`` are monthly, the others daily."""
+        kind = "monthly" if dataset.endswith("m") else "daily"
         name = f"{symbol}-1m-{period}.zip"
-        url = f"{FILES}{kind}/klines/{symbol}/1m/{name}"
+        url = f"{FILES}{kind}/{folder}/{symbol}/1m/{name}"
         content = _zip(name, rows)
         self.files[url] = content
         self.files[url + ".CHECKSUM"] = f"{hashlib.sha256(content).hexdigest()}  {name}\n".encode()
         md5 = hashlib.md5(content, usedforsecurity=False).hexdigest()
-        self.entries[dataset].append(
+        self.entries.setdefault(dataset, []).append(
             ManifestEntry(
                 dataset, symbol, period, url, len(content), md5, utc(2026, 11, 2), url + ".CHECKSUM"
             )
@@ -223,6 +236,7 @@ def test_the_configured_universe_and_datasets_exist() -> None:
         (BARS, "binance"),
         (BARS, "bybit"),
         ("u1.funding", "binance"),
+        ("u1.mark_1m", "binance"),
     ]
     for j in jobs:
         for dataset in (j.monthly, j.daily):
@@ -305,6 +319,44 @@ def test_funding_files_become_the_funding_partition(fake: FakeArchive, tmp_path:
     ]
     assert early[1]["event_time"] == utc(2026, 10, 1, 4, 0, 0, 2000)
     assert table.window(None, utc(2026, 11, 1)).table.num_rows == 3
+
+
+def _mark(ms: int, close: str, count: int = 60) -> str:
+    return f"{ms},1,1,1,{close},0,{ms + 59_999},0,{count},0,0,0"
+
+
+def test_mark_price_files_become_the_mark_partition(fake: FakeArchive, tmp_path: Path) -> None:
+    mk = "markPriceKlines"
+    fake.put(
+        "pm", "AAAUSDT", "2026-10", [_mark(OCT_MS, "100.5"), _mark(OCT_MS + 60_000, "100.5", 0)], mk
+    )
+    # BBBUSDT has no monthly file for October: a daily file instead.
+    fake.put("pd", "BBBUSDT", "2026-10-02", [_mark(OCT_MS + DAY_MS, "0.00012345")], mk)
+    fake.put("pd", "AAAUSDT", "2026-10-01", [_mark(OCT_MS, "100.5")], mk)  # the monthly file wins
+    remote = DirectoryRemote(tmp_path / "remote")
+    fake.publish(remote, utc(2026, 11, 9))
+    job = u1.job(CFG, "u1.mark_1m", "binance")
+    assert u1.plan(job, remote, LIMITS, tmp_path / "p").months == [OCTOBER]
+
+    result = u1.build(job, OCTOBER, remote, LIMITS, tmp_path / "b", row_group_rows=2)
+    card = result.card
+    assert (card.name, card.rows, card.notes) == ("u1.mark_1m/v1/2026-10/binance", 3, [])
+    assert (len(card.inputs), result.from_daily) == (2, ["BBBUSDT"])
+
+    table = PartitionedTable(
+        "u1.mark_1m", ("exchange", "symbol"), 1, tmp_path / "read", remote, LIMITS
+    )
+    # At 00:01:30 the first minute has ended and is known; the second has not.
+    early = table.window(None, utc(2026, 10, 1, 0, 1, 30)).table.to_pylist()
+    assert [(r["symbol"], r["close"], r["close_scale"], r["samples"]) for r in early] == [
+        ("AAAUSDT", 1005, 1, 60)
+    ]
+    rows = table.window(None, utc(2026, 11, 1)).table.to_pylist()
+    assert [(r["symbol"], r["samples"]) for r in rows] == [
+        ("AAAUSDT", 60),
+        ("AAAUSDT", 0),
+        ("BBBUSDT", 60),
+    ]
 
 
 TRADING = "https://public.bybit.com/trading/"

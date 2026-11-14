@@ -55,6 +55,13 @@ sub = "1m/"
 added = "2026-11-15T00:00:00Z"
 enabled = true
 
+[datasets."binance.um.mark_1m.monthly"]
+exchange = "binance"
+root = "data/futures/um/monthly/markPriceKlines/"   # 加工标记价格用月度文件（2.5.6），理由同 K 线
+sub = "1m/"
+added = "2026-11-14T00:00:00Z"
+enabled = true
+
 [datasets."binance.um.metrics.daily"]
 exchange = "binance"
 root = "data/futures/um/daily/metrics/"   # 持仓量、多空比，5 分钟一条；从 2020-09 开始
