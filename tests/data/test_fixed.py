@@ -84,3 +84,22 @@ def test_scientific_notation_only_when_asked_and_exactly() -> None:
     assert f.scale == 6
     with pytest.raises(FixedPointError, match="not a plain decimal"):
         parse(["1e", "2"], exponents=True)
+
+
+def test_float_rounding_error_is_read_as_the_decimal_it_surrounds() -> None:
+    text = ["12.309999999999999", "72.27000000000001", "12.5", "1909.5"]
+    # Rounded to 15 significant digits: 12.3100000000000 and 72.2700000000000.
+    f = parse(text, floats=True)
+    assert f.decimals() == [Decimal("12.31"), Decimal("72.27"), Decimal("12.5"), Decimal("1909.5")]
+    assert f.scale == 2
+    # Without the option every digit is kept, as for a source of true decimals.
+    assert parse(text).scale == 15
+    assert parse(["150570784.078099791"]).decimals() == [Decimal("150570784.078099791")]
+
+
+def test_long_text_that_is_not_rounding_error_is_refused() -> None:
+    # 19 digits; rounded to 15 it is 0.123456789012346, still 15 digits long: not noise.
+    with pytest.raises(FixedPointError, match="float rounding error"):
+        parse(["0.1234567890123456789"], floats=True)
+    # 15 digits or fewer are taken as written.
+    assert parse(["0.123456789012345"], floats=True).scale == 15

@@ -122,11 +122,12 @@ def from_trades(
         quote = pc.multiply_checked(price.mantissa, size.mantissa)
     except pa.ArrowInvalid as exc:
         raise FixedPointError(f"{symbol}: price times size does not fit in 64 bits") from exc
+    minute = pc.multiply(pc.divide(time_us.cast(pa.int64()), _BAR_US), _BAR_US)
     wide = pa.decimal128(38, 0)
     zero = pa.scalar(0, pa.int64())
     trades = pa.table(
         {
-            "minute": pc.multiply(pc.divide(time_us.cast(pa.int64()), _BAR_US), _BAR_US),
+            "minute": minute,
             "price": price.mantissa,
             "size": size.mantissa.cast(wide),
             "quote": quote.cast(wide),
@@ -134,19 +135,35 @@ def from_trades(
             "buy_quote": pc.if_else(taker_buys, quote, zero).cast(wide),
         }
     )
-    g = trades.group_by("minute", use_threads=False).aggregate(
-        [
-            ("price", "first"),
-            ("price", "max"),
-            ("price", "min"),
-            ("price", "last"),
-            ("size", "sum"),
-            ("quote", "sum"),
-            ("buy", "sum"),
-            ("buy_quote", "sum"),
-            ("price", "count"),
-        ]
+    # Only aggregates that do not depend on row order are left to the grouping, and its
+    # result is sorted: a hash grouping returns its groups in no promised order (on real
+    # files it did not return them in order of first appearance).
+    g = (
+        trades.group_by("minute", use_threads=False)
+        .aggregate(
+            [
+                ("price", "max"),
+                ("price", "min"),
+                ("size", "sum"),
+                ("quote", "sum"),
+                ("buy", "sum"),
+                ("buy_quote", "sum"),
+                ("price", "count"),
+            ]
+        )
+        .sort_by("minute")
     )
+    # Trades are in time order, so each minute is one run of rows: its first row opens
+    # the bar and its last row closes it.
+    if n:
+        changes = pc.indices_nonzero(pc.not_equal(minute[1:], minute[:-1])).cast(pa.int64())
+        first = pa.concat_arrays([pa.array([0], pa.int64()), pc.add(changes, 1)])
+        last = pa.concat_arrays([changes, pa.array([n - 1], pa.int64())])
+    else:
+        first = last = pa.array([], pa.int64())
+    starts = pc.take(minute, first)
+    if not starts.equals(g.column("minute").combine_chunks()):
+        raise BarError(f"{symbol}: the grouping lost or invented a minute")
 
     def narrow(column: str, scale: int) -> Fixed:
         try:
@@ -156,10 +173,10 @@ def from_trades(
 
     q_scale = price.scale + size.scale
     values = {
-        "open": Fixed(g.column("price_first").combine_chunks(), price.scale),
+        "open": Fixed(pc.take(price.mantissa, first), price.scale),
         "high": Fixed(g.column("price_max").combine_chunks(), price.scale),
         "low": Fixed(g.column("price_min").combine_chunks(), price.scale),
-        "close": Fixed(g.column("price_last").combine_chunks(), price.scale),
+        "close": Fixed(pc.take(price.mantissa, last), price.scale),
         "volume": narrow("size_sum", size.scale),
         "quote_volume": narrow("quote_sum", q_scale),
         "taker_buy_volume": narrow("buy_sum", size.scale),
@@ -168,7 +185,7 @@ def from_trades(
     return bars(
         exchange,
         symbol,
-        g.column("minute").combine_chunks(),
+        starts,
         values,
         g.column("price_count").combine_chunks(),
         ingested_at,
