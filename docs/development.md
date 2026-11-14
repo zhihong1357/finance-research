@@ -80,8 +80,8 @@ uv run finresearch collect run --source heartbeat.canary   # 采集一个数据�
 uv run finresearch monitor                                 # 监控一遍，还需要 GITHUB_TOKEN（只在 Actions 里运行）
 uv run finresearch archive plan                            # 列出启用的归档数据集
 uv run finresearch archive run --dataset bybit.trades.daily  # 列目录、推送增量清单、抽查文件，需要 HF_TOKEN 和 HF_DATASET
-uv run finresearch u1 plan                                 # 列出两家交易所还没加工的月份
-uv run finresearch u1 build --exchange bybit --month 2026-10  # 加工一个月并推送，需要 HF_TOKEN 和 HF_DATASET
+uv run finresearch u1 plan                                 # 列出每张表、每家交易所还没加工的月份
+uv run finresearch u1 build --table u1.bars_1m --exchange bybit --month 2026-10  # 加工一个月并推送，需要 HF_TOKEN 和 HF_DATASET
 ```
 
 ### 记一次试验

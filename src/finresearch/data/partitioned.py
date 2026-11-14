@@ -11,11 +11,12 @@ the bars, the exchange)::
 
 The card records the table's keys, the row count, the content fingerprint, the
 file's SHA-256, whether every observation has a single version, the input
-files the partition was built from, and notes (such as impossible bars that
-were kept). ``PartitionWriter`` builds a partition a piece at a time, so a
-month of every symbol never has to be in memory at once. Partitions are written once (the remote
-store is append-only); ``format`` goes up when the table's layout changes, so a
-new layout never overwrites an old one.
+files the partition was built from (with their SHA-256 and what the archive
+manifest said about them), and notes (such as impossible bars that were kept).
+``PartitionWriter`` builds a partition a piece at a time, so a month of every
+symbol never has to be in memory at once. Partitions are written once (the
+remote store is append-only); ``format`` goes up when the table's layout
+changes, so a new layout never overwrites an old one.
 
 A ``PartitionedTable`` answers a query from the partitions that overlap its
 window only, checks each file against its card before reading it, and pulls
@@ -71,6 +72,9 @@ class PartitionCard:
     single_version: bool
     inputs: dict[str, str] = field(default_factory=lambda: dict[str, str]())
     notes: list[str] = field(default_factory=lambda: list[str]())  # e.g. impossible bars kept
+    # What the archive manifest said about each input when the partition was built, so a
+    # file the archive publishes again under the same URL is noticed (empty on older cards).
+    listed: dict[str, str] = field(default_factory=lambda: dict[str, str]())
 
     @property
     def name(self) -> str:
@@ -221,7 +225,12 @@ class PartitionWriter:
         self._parquet.write_table(chunk, row_group_size=rows)
         self._ipc.write_table(chunk, max_chunksize=rows)
 
-    def close(self, inputs: Mapping[str, str], notes: Sequence[str] = ()) -> PartitionCard:
+    def close(
+        self,
+        inputs: Mapping[str, str],
+        notes: Sequence[str] = (),
+        listed: Mapping[str, str] | None = None,
+    ) -> PartitionCard:
         """Finish the file and write the card next to it."""
         if self._parquet is None:
             raise PartitionError(f"{self.name} {self.month:%Y-%m}/{self.part}: no rows to write")
@@ -243,6 +252,7 @@ class PartitionWriter:
             single_version=self._single,
             inputs=dict(sorted(inputs.items())),
             notes=list(notes),
+            listed=dict(sorted((listed or {}).items())),
         )
         (self._folder / f"{self.part}.json").write_text(card.to_json(), encoding="utf-8")
         return card
