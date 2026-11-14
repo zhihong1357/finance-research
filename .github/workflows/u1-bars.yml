@@ -2,7 +2,7 @@
 # Bybit 的逐笔成交），核对大小、ETag 和校验和，加工成按月分区的时点表，推到数据集。每张表、
 # 每个交易所的每个月一个任务，一个失败不影响其他。已经加工过的月份不再加工（远程存储只追加）。
 # 每月 15 日运行一次，补上刚结束的那个月。表和数据集的对应关系在 config/u1.toml。
-name: U1 1 分钟数据
+name: U1 时点表
 
 on:
   schedule:
@@ -28,7 +28,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: u1-bars
+  # 同一时刻只跑一次，免得两次运行加工同一个分区。只选 Binance 的手动运行单独排队：
+  # Bybit 受限速，一次全量要跑两天，Binance 的表不必等它
+  group: ${{ inputs.exchange == 'binance' && 'u1-binance' || 'u1-bars' }}
   cancel-in-progress: false
 
 jobs:
@@ -80,7 +82,9 @@ jobs:
     timeout-minutes: 300       # Bybit 近期的一个月要下载几十 GB 的逐笔成交
     strategy:
       fail-fast: false
-      max-parallel: 2          # Bybit 限制每个地址的请求频率（collect.toml），不靠多开任务绕过它
+      # Bybit 限制每个地址的请求频率（collect.toml），不靠多开任务绕过它：有 Bybit 的运行最多 2 个任务。
+      # 只选 Binance 的运行最多 4 个（Binance 的首次加工就是这样跑的）
+      max-parallel: ${{ inputs.exchange == 'binance' && 4 || 2 }}
       matrix:
         include: ${{ fromJSON(needs.plan.outputs.jobs) }}
     steps:
