@@ -26,10 +26,11 @@ from huggingface_hub.errors import (
 )
 from huggingface_hub.hf_api import RepoFile
 
-from finresearch.data.store import StoreError, TransientStoreError
+from finresearch.data.store import RateLimitedStoreError, StoreError, TransientStoreError
 
 TOKEN_ENV, DATASET_ENV = "HF_TOKEN", "HF_DATASET"
 _PERMANENT_STATUS = frozenset({401, 403, 404})
+_RATE_LIMITED_STATUS = 429  # Too Many Requests
 
 
 def _classify[T](fn: Callable[[], T]) -> T:
@@ -41,6 +42,8 @@ def _classify[T](fn: Callable[[], T]) -> T:
         status = exc.response.status_code
         if status in _PERMANENT_STATUS:
             raise StoreError(f"HTTP {status}: check HF_DATASET and the token") from exc
+        if status == _RATE_LIMITED_STATUS:
+            raise RateLimitedStoreError(f"HTTP {status}") from exc
         raise TransientStoreError(f"HTTP {status}") from exc
     except (HTTPError, OSError) as exc:
         raise TransientStoreError(type(exc).__name__) from exc

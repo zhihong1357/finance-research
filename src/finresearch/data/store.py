@@ -31,12 +31,20 @@ class TransientStoreError(RuntimeError):
     """A network or server problem, or a concurrent commit: worth retrying."""
 
 
+class RateLimitedStoreError(TransientStoreError):
+    """The store refuses more requests for now: worth retrying, but only after a long wait."""
+
+
 @dataclass(frozen=True, slots=True)
 class Limits:
     max_files_per_commit: int
     max_entries_per_folder: int
     retries: int
     retry_wait_seconds: float
+    # Waiting out a rate limit (Hugging Face allows 128 commits an hour per repository).
+    # Zero retries, the default, treats a rate limit like any other transient error.
+    rate_limit_retries: int = 0
+    rate_limit_wait_seconds: float = 0.0
 
     @classmethod
     def from_config(cls, hub: Mapping[str, Any]) -> Limits:
@@ -45,6 +53,8 @@ class Limits:
             int(hub["max_entries_per_folder"]),
             int(hub["retries"]),
             float(hub["retry_wait_seconds"]),
+            int(hub["rate_limit_retries"]),
+            float(hub["rate_limit_wait_seconds"]),
         )
 
 
@@ -77,14 +87,30 @@ Sleep = Callable[[float], None]
 
 
 def with_retries[T](fn: Callable[[], T], limits: Limits, sleep: Sleep = time.sleep) -> T:
-    for attempt in range(limits.retries + 1):
+    """Call ``fn``, waiting and trying again on transient errors.
+
+    A rate limit is waited out on its own, longer, budget: the work behind a
+    push (a built partition) is worth an hour's wait, and trying again at once
+    cannot succeed.
+    """
+    failures = limited = 0
+    while True:
         try:
             return fn()
-        except TransientStoreError:
-            if attempt == limits.retries:
+        except RateLimitedStoreError:
+            if limited < limits.rate_limit_retries:
+                limited += 1
+                sleep(limits.rate_limit_wait_seconds)
+                continue
+            if failures == limits.retries:
                 raise
+            failures += 1
             sleep(limits.retry_wait_seconds)
-    raise AssertionError("unreachable")  # pragma: no cover
+        except TransientStoreError:
+            if failures == limits.retries:
+                raise
+            failures += 1
+            sleep(limits.retry_wait_seconds)
 
 
 @dataclass
