@@ -72,7 +72,7 @@ def csv_from_zip(content: bytes, entry: ManifestEntry) -> bytes:
         raise KlineError(f"{entry.url}: not a valid zip: {exc}") from exc
 
 
-def _period(entry: ManifestEntry) -> tuple[datetime, datetime]:
+def period_bounds(entry: ManifestEntry) -> tuple[datetime, datetime]:
     """The UTC interval ``[start, end)`` a daily (YYYY-MM-DD) or monthly (YYYY-MM) file covers."""
     parts = [int(p) for p in entry.period.split("-")]
     if len(parts) == 3:  # noqa: PLR2004 - year, month, day
@@ -98,7 +98,7 @@ def parse_klines(text: bytes, entry: ManifestEntry, ingested_at: datetime) -> Pi
     expected_close = pc.add(opens, pa.scalar(_CLOSE_OFFSET_MS, pa.int64()))
     if not pc.all(pc.equal(table.column("close_time"), expected_close)).as_py() and table.num_rows:
         raise KlineError(f"{entry.url}: a close_time is not open_time + 59,999 ms")
-    start, end = _period(entry)
+    start, end = period_bounds(entry)
     lo, hi = int(start.timestamp() * _MS), int(end.timestamp() * _MS)
     if table.num_rows and (pc.min(opens).as_py() < lo or pc.max(opens).as_py() >= hi):
         raise KlineError(f"{entry.url}: a bar falls outside {entry.period}")

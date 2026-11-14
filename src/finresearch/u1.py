@@ -38,7 +38,7 @@ from typing import Any
 from finresearch import archive
 from finresearch.core.config import load_toml
 from finresearch.core.time import ensure_utc, month_start
-from finresearch.data import bars
+from finresearch.data import bars, funding
 from finresearch.data.manifest import (
     PREFIX,
     ManifestEntry,
@@ -51,6 +51,7 @@ from finresearch.data.store import Limits, PushReport, Remote, local_files, pull
 from finresearch.data.table import PitTable
 from finresearch.sources import (
     binance_archive,
+    binance_funding,
     binance_klines,
     binance_trades,
     bybit_archive,
@@ -88,6 +89,14 @@ def _binance_klines(content: bytes, e: ManifestEntry, published: datetime) -> Pi
     return binance_klines.parse_klines(binance_klines.csv_from_zip(content, e), e, published)
 
 
+def _binance_funding(content: bytes, e: ManifestEntry, published: datetime) -> PitTable:
+    return binance_funding.parse_funding(binance_klines.csv_from_zip(content, e), e, published)
+
+
+def _no_problems(_: PitTable) -> list[str]:
+    return []
+
+
 PRODUCTS: dict[tuple[str, str], Product] = {
     (bars.NAME, "binance"): Product(
         bars.NAME, bars.KEYS, binance_archive, True, _binance_klines, bars.concat, bars.problems
@@ -100,6 +109,15 @@ PRODUCTS: dict[tuple[str, str], Product] = {
         bybit_trades.parse_trades,
         bars.concat,
         bars.problems,
+    ),
+    (funding.NAME, "binance"): Product(
+        funding.NAME,
+        funding.KEYS,
+        binance_archive,
+        True,
+        _binance_funding,
+        funding.concat,
+        _no_problems,
     ),
 }
 

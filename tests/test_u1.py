@@ -34,7 +34,11 @@ CFG: dict[str, Any] = {
             "format": 1,
             "binance": {"monthly": "m", "daily": "d", "settle_days": 7, "workers": 2, "batch": 1},
             "bybit": {"daily": "b", "settle_days": 7, "workers": 2, "batch": 1},
-        }
+        },
+        "u1.funding": {
+            "format": 1,
+            "binance": {"monthly": "f", "settle_days": 7, "workers": 2, "batch": 1},
+        },
     },
 }
 BINANCE = u1.job(CFG, BARS, "binance")
@@ -73,6 +77,19 @@ class FakeArchive:
         self.entries[dataset].append(
             ManifestEntry(
                 dataset, symbol, period, url, len(content), md5, utc(2026, 11, 2), url + ".CHECKSUM"
+            )
+        )
+
+    def put_funding(self, symbol: str, month: str, rows: list[str]) -> None:
+        name = f"{symbol}-fundingRate-{month}.zip"
+        url = f"{FILES}monthly/fundingRate/{symbol}/{name}"
+        content = _zip(name, ["calc_time,funding_interval_hours,last_funding_rate", *rows])
+        self.files[url] = content
+        self.files[url + ".CHECKSUM"] = f"{hashlib.sha256(content).hexdigest()}  {name}\n".encode()
+        md5 = hashlib.md5(content, usedforsecurity=False).hexdigest()
+        self.entries.setdefault("f", []).append(
+            ManifestEntry(
+                "f", symbol, month, url, len(content), md5, utc(2026, 11, 2), url + ".CHECKSUM"
             )
         )
 
@@ -202,7 +219,11 @@ def test_the_configured_universe_and_datasets_exist() -> None:
     cfg = u1.u1_config()
     archives = load_toml("archives")["datasets"]
     jobs = u1.jobs(cfg)
-    assert [(j.table, j.exchange) for j in jobs] == [(BARS, "binance"), (BARS, "bybit")]
+    assert [(j.table, j.exchange) for j in jobs] == [
+        (BARS, "binance"),
+        (BARS, "bybit"),
+        ("u1.funding", "binance"),
+    ]
     for j in jobs:
         for dataset in (j.monthly, j.daily):
             assert dataset is None or archives[dataset]["enabled"], dataset
@@ -253,6 +274,37 @@ def test_a_file_published_again_makes_the_partition_stale(
     assert u1.plan(BINANCE, remote, LIMITS, tmp_path / "p2").stale == [
         "2026-10: 1 file(s) published again since the partition was built"
     ]
+
+
+def test_funding_files_become_the_funding_partition(fake: FakeArchive, tmp_path: Path) -> None:
+    hour = 3_600_000
+    fake.put_funding(
+        "AAAUSDT", "2026-10", [f"{OCT_MS},8,0.00010000", f"{OCT_MS + 8 * hour},8,-1E-8"]
+    )
+    fake.put_funding("BBBUSDT", "2026-10", [f"{OCT_MS + 4 * hour + 2},4,0.00025"])
+    fake.put_funding("CCCUSDT_261226", "2026-10", [f"{OCT_MS},8,0.0001"])  # dated: not in U1
+    fake.put_funding("AAAUSDT", "2026-09", [f"{OCT_MS - 8 * hour},8,0.0003"])  # another month
+    remote = DirectoryRemote(tmp_path / "remote")
+    fake.publish(remote, utc(2026, 11, 9))
+    job = u1.job(CFG, "u1.funding", "binance")
+    assert u1.plan(job, remote, LIMITS, tmp_path / "p").months == [date(2026, 9, 1), OCTOBER]
+
+    result = u1.build(job, OCTOBER, remote, LIMITS, tmp_path / "b", row_group_rows=2)
+    card = result.card
+    assert (card.name, card.rows, card.notes) == ("u1.funding/v1/2026-10/binance", 3, [])
+    assert (len(card.inputs), result.from_daily) == (2, [])
+
+    table = PartitionedTable(
+        "u1.funding", ("exchange", "symbol"), 1, tmp_path / "read", remote, LIMITS
+    )
+    # At 05:00 on 1 October only the settlements up to then are known.
+    early = table.window(None, utc(2026, 10, 1, 5)).table.to_pylist()
+    assert [(r["symbol"], r["funding_rate"], r["funding_rate_scale"]) for r in early] == [
+        ("AAAUSDT", 10000, 8),
+        ("BBBUSDT", 25, 5),
+    ]
+    assert early[1]["event_time"] == utc(2026, 10, 1, 4, 0, 0, 2000)
+    assert table.window(None, utc(2026, 11, 1)).table.num_rows == 3
 
 
 TRADING = "https://public.bybit.com/trading/"
