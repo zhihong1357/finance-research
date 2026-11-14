@@ -25,6 +25,15 @@ settle_days = 7
 workers = 8                     # 一个交易日的 BTCUSDT 解压后约 300 MB，并行数比 Binance 少
 batch = 32
 
+[tables."u1.funding"]
+format = 1
+
+[tables."u1.funding".binance]
+monthly = "binance.um.funding.monthly"     # 资金费率只有月度文件，当月的要等下个月初
+settle_days = 7
+workers = 16
+batch = 64
+
 [crosscheck]
 # 抽样核对（2.5.5，决策 0010）：随机抽一些合约日，用逐笔成交重算 1 分钟数据，与 Binance 的 K 线逐分钟比对。
 # 结果是由数据得出的质量报告，只存私有数据集（决策 0008）；公开日志只写是否通过
