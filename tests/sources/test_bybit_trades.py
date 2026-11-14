@@ -96,6 +96,13 @@ def test_float_rounding_error_in_times_and_prices_is_removed() -> None:
     assert (bar["quote_volume"], bar["quote_volume_scale"], bar["trades"]) == (3712, 2, 2)
 
 
+@pytest.mark.parametrize("content", [_gz(), gzip.compress(b"")])
+def test_a_file_without_trades_gives_no_bars(content: bytes) -> None:
+    # Only the header line, or nothing at all (as ANCUSDT's last file in the archive).
+    t = parse_trades(content, ENTRY, PUBLISHED)
+    assert (t.name, t.num_rows) == ("u1.bars_1m", 0)
+
+
 def test_a_renamed_folder_keeps_the_folder_as_symbol() -> None:
     url = "https://public.bybit.com/trading/AAAOLDUSDT/AAAUSDT2026-11-12.csv.gz"
     t = parse_trades(_gz(*TRADES), ManifestEntry("d", "AAAOLDUSDT", "2026-11-12", url), PUBLISHED)
@@ -113,7 +120,6 @@ def test_a_renamed_folder_keeps_the_folder_as_symbol() -> None:
         # 0.3 microseconds from a whole one: more than a float's rounding error
         ([_row(f"{DAY}.1234567", "Buy", "1", "1")], "finer than a microsecond"),
         ([_row(f"{DAY}", "Buy", "1", "0.1234567890123456789")], "float rounding error"),
-        ([], "no trades"),
     ],
 )
 def test_bad_files_are_refused(rows: list[str], message: str) -> None:

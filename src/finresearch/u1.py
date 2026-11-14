@@ -350,15 +350,18 @@ def file_rows(product: Product, e: ManifestEntry) -> tuple[PitTable, str]:
 
 def _symbol_rows(
     product: Product, entries: Sequence[ManifestEntry]
-) -> tuple[PitTable, dict[str, str]]:
-    """One symbol's rows for the month, and the files they came from."""
+) -> tuple[PitTable, dict[str, str], list[str]]:
+    """One symbol's rows for the month, the files they came from, and the files without rows."""
     tables: list[PitTable] = []
     inputs: dict[str, str] = {}
+    empty: list[str] = []
     for e in entries:
         table, sha = file_rows(product, e)
         tables.append(table)
         inputs[e.url] = sha
-    return (tables[0] if len(tables) == 1 else product.concat(tables)), inputs
+        if table.num_rows == 0:
+            empty.append(e.url)
+    return (tables[0] if len(tables) == 1 else product.concat(tables)), inputs, empty
 
 
 def build(
@@ -380,15 +383,20 @@ def build(
     inputs: dict[str, str] = {}
     notes: list[str] = []
 
-    def one(symbol: str) -> tuple[PitTable, dict[str, str]]:
+    empty: list[str] = []
+
+    def one(symbol: str) -> tuple[PitTable, dict[str, str], list[str]]:
         return _symbol_rows(product, chosen.files[symbol])
 
     with ThreadPoolExecutor(max_workers=j.workers) as pool:
         for batch in _batches(list(chosen.files), j.batch):
-            for table, used in pool.map(one, batch):
+            for table, used, without_rows in pool.map(one, batch):
                 writer.add(table)
                 inputs.update(used)
                 notes.extend(product.problems(table))
+                empty.extend(without_rows)
+    if empty:
+        notes.append(f"input files without rows: {len(empty)}, first {min(empty)}")
     card = writer.close(inputs, notes, {e.url: listed(e) for e in chosen.entries})
     from_daily = (
         [s for s, es in chosen.files.items() if es[0].period != f"{month:%Y-%m}"]

@@ -24,6 +24,7 @@ The ones used here:
 Older files list trades newest first, newer ones oldest first. Trades are put
 in time order; trades with the same timestamp keep their order in the file,
 read oldest first, so the first and last price of a minute are well defined.
+A file without trades (only the header line, or nothing at all) gives no bars.
 """
 
 import gzip
@@ -83,11 +84,15 @@ def parse_trades(content: bytes, entry: ManifestEntry, ingested_at: datetime) ->
     traded = m["symbol"]
     try:
         text = gzip.decompress(content)
-        table = csvtext.read_named(text, COLUMNS)
+        # The archive holds a few files with nothing in them, not even the header line
+        # (a contract's last day before delisting): a day without trades, so without bars.
+        table = csvtext.read_named(text, COLUMNS) if text.strip() else None
     except (OSError, EOFError, zlib.error, csvtext.CsvError) as exc:
         raise TradeError(f"{entry.url}: {type(exc).__name__}: {exc}") from exc
-    if table.num_rows == 0:
-        raise TradeError(f"{entry.url}: no trades")
+    if table is None or table.num_rows == 0:
+        none = parse([])
+        no_times, no_sides = pa.array([], pa.int64()), pa.array([], pa.bool_())
+        return bars.from_trades(EXCHANGE, entry.symbol, no_times, none, none, no_sides, ingested_at)
     if not pc.all(pc.equal(table.column("symbol"), pa.scalar(traded))).as_py():
         raise TradeError(f"{entry.url}: a row is not {traded}")
     if not pc.all(pc.is_in(table.column("side"), value_set=pa.array(_SIDES))).as_py():

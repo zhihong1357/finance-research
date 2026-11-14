@@ -419,6 +419,7 @@ def test_bybit_trades_become_the_bybit_partition(
     fake.put("AAAUSDT-26DEC26", "AAAUSDT-26DEC26", "2026-10-01", [OCT_S])  # dated: not in U1
     fake.put("WC_X_USDT-26DEC26", "WC_X_USDT-26DEC26", "2026-10-01", [OCT_S])  # event contract
     fake.put("AAAUSD", "AAAUSD", "2026-10-01", [OCT_S])  # inverse
+    fake.put("CCCUSDT", "CCCUSDT", "2026-10-03", [])  # a day without trades
     remote = DirectoryRemote(tmp_path / "remote")
     write_increment(
         [Row(Change.ADDED, e) for e in fake.entries],
@@ -431,7 +432,10 @@ def test_bybit_trades_become_the_bybit_partition(
         4,
         [],
     )
-    assert len(result.card.inputs) == 3
+    assert len(result.card.inputs) == 4
+    assert result.card.notes == [
+        f"input files without rows: 1, first {TRADING}CCCUSDT/CCCUSDT2026-10-03.csv.gz"
+    ]
     table = PartitionedTable(
         "u1.bars_1m", ("exchange", "symbol"), 1, tmp_path / "read", remote, LIMITS
     )
