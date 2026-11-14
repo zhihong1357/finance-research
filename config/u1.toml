@@ -44,6 +44,15 @@ settle_days = 7
 workers = 16
 batch = 64
 
+[tables."u1.open_interest_5m"]
+format = 1
+
+[tables."u1.open_interest_5m".binance]
+daily = "binance.um.metrics.daily"         # 持仓量只有逐日文件
+settle_days = 7
+workers = 16
+batch = 64
+
 [crosscheck]
 # 抽样核对（2.5.5，决策 0010）：随机抽一些合约日，用逐笔成交重算 1 分钟数据，与 Binance 的 K 线逐分钟比对。
 # 结果是由数据得出的质量报告，只存私有数据集（决策 0008）；公开日志只写是否通过

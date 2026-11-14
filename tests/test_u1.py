@@ -39,6 +39,10 @@ CFG: dict[str, Any] = {
             "format": 1,
             "binance": {"monthly": "f", "settle_days": 7, "workers": 2, "batch": 1},
         },
+        "u1.open_interest_5m": {
+            "format": 1,
+            "binance": {"daily": "oi", "settle_days": 7, "workers": 2, "batch": 1},
+        },
         "u1.mark_1m": {
             "format": 1,
             "binance": {
@@ -103,6 +107,28 @@ class FakeArchive:
         self.entries.setdefault("f", []).append(
             ManifestEntry(
                 "f", symbol, month, url, len(content), md5, utc(2026, 11, 2), url + ".CHECKSUM"
+            )
+        )
+
+    def put_metrics(self, symbol: str, day: str, rows: list[str]) -> None:
+        """A metrics file whose rows are all stamped with ``day``."""
+        self.put_metrics_rows(symbol, day, [f"{day} {r}" for r in rows])
+
+    def put_metrics_rows(self, symbol: str, day: str, rows: list[str]) -> None:
+        name = f"{symbol}-metrics-{day}.zip"
+        url = f"{FILES}daily/metrics/{symbol}/{name}"
+        header = (
+            "create_time,symbol,sum_open_interest,sum_open_interest_value,"
+            "count_toptrader_long_short_ratio,sum_toptrader_long_short_ratio,"
+            "count_long_short_ratio,sum_taker_long_short_vol_ratio"
+        )
+        content = _zip(name, [header, *rows])
+        self.files[url] = content
+        self.files[url + ".CHECKSUM"] = f"{hashlib.sha256(content).hexdigest()}  {name}\n".encode()
+        md5 = hashlib.md5(content, usedforsecurity=False).hexdigest()
+        self.entries.setdefault("oi", []).append(
+            ManifestEntry(
+                "oi", symbol, day, url, len(content), md5, utc(2026, 11, 2), url + ".CHECKSUM"
             )
         )
 
@@ -237,6 +263,7 @@ def test_the_configured_universe_and_datasets_exist() -> None:
         (BARS, "bybit"),
         ("u1.funding", "binance"),
         ("u1.mark_1m", "binance"),
+        ("u1.open_interest_5m", "binance"),
     ]
     for j in jobs:
         for dataset in (j.monthly, j.daily):
@@ -357,6 +384,66 @@ def test_mark_price_files_become_the_mark_partition(fake: FakeArchive, tmp_path:
         ("AAAUSDT", 0),
         ("BBBUSDT", 60),
     ]
+
+
+def test_metrics_files_become_the_open_interest_partition(
+    fake: FakeArchive, tmp_path: Path
+) -> None:
+    fake.put_metrics(
+        "AAAUSDT",
+        "2026-10-01",
+        ["00:00:00,AAAUSDT,10.50000000,1050.00000000,1.5,2.5,0.5,1.0"],
+    )
+    fake.put_metrics(
+        "AAAUSDT",
+        "2026-10-02",
+        ["00:00:00,AAAUSDT,11.2500000000000000,1125.0000000000000000,,,,"],
+    )
+    fake.put_metrics("BBBUSDT", "2026-10-01", ["00:05:00,BBBUSDT,7,0.07,2,3,4,5"])
+    fake.put_metrics("AAAUSDT_261226", "2026-10-01", ["00:00:00,AAAUSDT_261226,1,1,1,1,1,1"])
+    # The last file of September ends with a reading stamped 1 October 00:00: October's row.
+    # The last file of October ends with one stamped 1 November 00:00: November's row.
+    fake.put_metrics_rows(
+        "CCCUSDT",
+        "2026-09-30",
+        ["2026-09-30 23:55:00,CCCUSDT,1,1,,,,", "2026-10-01 00:00:00,CCCUSDT,2,2,,,,"],
+    )
+    fake.put_metrics_rows(
+        "CCCUSDT",
+        "2026-10-31",
+        ["2026-10-31 23:55:00,CCCUSDT,3,3,,,,", "2026-11-01 00:00:00,CCCUSDT,4,4,,,,"],
+    )
+    remote = DirectoryRemote(tmp_path / "remote")
+    fake.publish(remote, utc(2026, 11, 9))
+    job = u1.job(CFG, "u1.open_interest_5m", "binance")
+    assert u1.plan(job, remote, LIMITS, tmp_path / "p").months == [date(2026, 9, 1), OCTOBER]
+
+    result = u1.build(job, OCTOBER, remote, LIMITS, tmp_path / "b", row_group_rows=2)
+    card = result.card
+    assert (card.name, card.rows, card.notes) == ("u1.open_interest_5m/v1/2026-10/binance", 5, [])
+    assert (len(card.inputs), result.from_daily) == (5, [])
+
+    table = PartitionedTable(
+        "u1.open_interest_5m", ("exchange", "symbol"), 1, tmp_path / "read", remote, LIMITS
+    )
+    # A reading labelled 00:00 may have been taken as late as 00:05: unknown before then.
+    assert table.window(None, utc(2026, 10, 1, 0, 4, 59)).table.num_rows == 0
+    early = table.window(None, utc(2026, 10, 1, 0, 5)).table.to_pylist()
+    assert [(r["symbol"], r["open_interest"], r["open_interest_scale"]) for r in early] == [
+        ("AAAUSDT", 105, 1),
+        ("CCCUSDT", 2, 0),
+    ]
+    rows = table.window(None, utc(2026, 11, 1)).table.to_pylist()
+    assert [(r["symbol"], r["open_interest"], r["open_interest_scale"], r["account_ratio"])
+            for r in rows] == [
+        ("AAAUSDT", 105, 1, 5),
+        ("AAAUSDT", 1125, 2, None),
+        ("BBBUSDT", 7, 0, 4),
+        ("CCCUSDT", 2, 0, None),  # stamped 1 October 00:00, from September's last file
+        ("CCCUSDT", 3, 0, None),  # 4, stamped 1 November 00:00, waits for November
+    ]  # fmt: skip
+    september = u1.build(job, date(2026, 9, 1), remote, LIMITS, tmp_path / "s", row_group_rows=2)
+    assert (september.card.rows, len(september.card.inputs)) == (1, 1)
 
 
 TRADING = "https://public.bybit.com/trading/"

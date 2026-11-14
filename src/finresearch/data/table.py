@@ -183,6 +183,15 @@ def restrict(
     return table
 
 
+def events_between(t: PitTable, start: datetime, end: datetime) -> PitTable:
+    """The rows of ``t`` with ``event_time`` in ``[start, end)``, every version of them."""
+    times = t.table.column(EVENT_TIME)
+    lo = pa.scalar(ensure_utc(start), type=TIME_TYPE)
+    hi = pa.scalar(ensure_utc(end), type=TIME_TYPE)
+    inside = pc.and_(pc.greater_equal(times, lo), pc.less(times, hi))
+    return PitTable(t.name, t.keys, t.table.filter(inside))
+
+
 def to_parquet(t: PitTable, path: Path) -> None:
     meta = {_META_NAME: t.name.encode(), _META_KEYS: json.dumps(list(t.keys)).encode()}
     path.parent.mkdir(parents=True, exist_ok=True)

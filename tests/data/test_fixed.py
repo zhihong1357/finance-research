@@ -103,3 +103,25 @@ def test_long_text_that_is_not_rounding_error_is_refused() -> None:
         parse(["0.1234567890123456789"], floats=True)
     # 15 digits or fewer are taken as written.
     assert parse(["0.123456789012345"], floats=True).scale == 15
+
+
+def test_padding_zeros_are_dropped_before_the_scale_is_chosen() -> None:
+    # As Binance pads open interest to 16 decimals: at that scale 81655.78 would not fit
+    # in 64 bits (8.2e20); trimmed, the column needs three decimals.
+    f = parse(["81655.7800000000000000", "2.0000000000000000", "0.1250", "100"], trim=True)
+    assert f.scale == 3
+    assert f.mantissa.to_pylist() == [81_655_780, 2_000, 125, 100_000]
+    with pytest.raises(FixedPointError, match="64 bits"):
+        parse(["81655.7800000000000000"])
+    # A whole number's own zeros are not padding.
+    assert parse(["100", "2500"], trim=True).mantissa.to_pylist() == [100, 2500]
+    assert parse(["0E-16"], exponents=True, trim=True).mantissa.to_pylist() == [0]
+
+
+def test_blanks_are_missing_values_only_when_asked() -> None:
+    f = parse(["1.5", "", "0.25"], blanks=True)
+    assert (f.mantissa.to_pylist(), f.scale) == ([150, None, 25], 2)
+    assert f.decimals() == [Decimal("1.5"), None, Decimal("0.25")]
+    assert parse(["", ""], blanks=True).mantissa.to_pylist() == [None, None]
+    with pytest.raises(FixedPointError, match="not a plain decimal"):
+        parse(["1.5", ""])
