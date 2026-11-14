@@ -10,10 +10,10 @@ from finresearch.data.table import (
     TIME_TYPE,
     PitTable,
     TableError,
+    events_between,
     from_parquet,
     to_parquet,
     versions_as_of,
-    events_between,
 )
 from tests.data.conftest import ROWS, make_table
 
@@ -134,6 +134,7 @@ def test_events_between_keeps_every_version_inside_the_interval(macro: PitTable)
     # September's two versions (30 September, first print and revision) and PPI's; the end
     # of the interval is excluded, so October's observation of 31 October is left out.
     september = events_between(macro, utc(2026, 9, 1), utc(2026, 10, 31))
-    assert sorted(september.table.column("value").to_pylist()) == [1.0, 3.0, 3.1]
+    assert set(september.table.column("value").to_pylist()) == {1.0, 3.0, 3.1}
+    assert september.num_rows == 3
     assert events_between(macro, utc(2026, 10, 31), utc(2026, 11, 1)).num_rows == 1
     assert events_between(macro, utc(2026, 11, 1), utc(2026, 12, 1)).num_rows == 0
