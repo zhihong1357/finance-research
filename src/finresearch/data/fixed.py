@@ -40,6 +40,7 @@ _FLOAT_DIGITS = 15
 # at least three of the float's digits must have come out as zeros.
 _CLEAN_DIGITS = 12
 _NOT_DIGITS = r"^-?0*\.?0*|\."  # sign, leading zeros and the point: what is left are digits
+_PADDING = r"(\.\d*?)0+$"  # zeros at the end of the fraction: 1.500 is 1.5, and 2.000 is 2.
 
 
 class FixedPointError(ValueError):
@@ -56,10 +57,13 @@ class Fixed:
     def __len__(self) -> int:
         return len(self.mantissa)
 
-    def decimals(self) -> list[Decimal]:
-        """The values as ``Decimal`` (for checks and tests; slow on large columns)."""
-        values = cast(list[int], self.mantissa.to_pylist())  # mantissas are never null
-        return [Decimal(m).scaleb(-self.scale) for m in values]
+    def decimals(self) -> list[Decimal | None]:
+        """The values as ``Decimal`` (for checks and tests; slow on large columns).
+
+        ``None`` where the source left a value out (``parse(..., blanks=True)``).
+        """
+        values = cast(list[int | None], self.mantissa.to_pylist())
+        return [None if m is None else Decimal(m).scaleb(-self.scale) for m in values]
 
 
 def _expand(arr: Column) -> Column:
@@ -97,7 +101,14 @@ def _unfloat(arr: Column) -> Column:
     return cast(Column, pc.replace_with_mask(arr, long, pa.array(short, type=pa.string())))
 
 
-def parse(text: Column | Sequence[str], *, exponents: bool = False, floats: bool = False) -> Fixed:
+def parse(
+    text: Column | Sequence[str],
+    *,
+    exponents: bool = False,
+    floats: bool = False,
+    trim: bool = False,
+    blanks: bool = False,
+) -> Fixed:
     """Decimal text to mantissas at the largest number of decimal places in the column.
 
     Every value keeps all of its digits: ``["1.5", "2", "0.25"]`` becomes
@@ -112,15 +123,29 @@ def parse(text: Column | Sequence[str], *, exponents: bool = False, floats: bool
     (``12.309999999999999`` as ``12.31``), and refuses it if it is not near one.
     Never set ``floats`` for a source that publishes true decimals: a quote
     volume can have 18 digits, all of them real.
+
+    Two more for sources that pad or omit values. ``trim`` drops the zeros a
+    source pads fractions with before the scale is chosen (``81655.7800000000``
+    is ``81655.78``: the same value, at a scale that fits in 64 bits).
+    ``blanks`` reads empty text as a missing value: a null mantissa.
     """
     arr = text if isinstance(text, pa.Array) else pa.array(list(text), type=pa.string())
     if len(arr) == 0:
         return Fixed(pa.array([], type=MANTISSA_TYPE), 0)
     arr = arr.cast(pa.string())
+    if blanks and arr.null_count == 0:
+        blank = pc.equal(arr, pa.scalar(""))
+        if pc.any(blank).as_py():
+            present = pc.invert(blank)
+            rest = parse(pc.filter(arr, present), exponents=exponents, floats=floats, trim=trim)
+            gaps = pa.nulls(len(arr), type=MANTISSA_TYPE)
+            return Fixed(pc.replace_with_mask(gaps, present, rest.mantissa), rest.scale)
     if exponents and arr.null_count == 0:
         arr = _expand(arr)
     if floats and arr.null_count == 0:
         arr = _unfloat(arr)
+    if trim and arr.null_count == 0:
+        arr = cast(Column, pc.replace_substring_regex(arr, _PADDING, r"\1"))
     parts = pc.extract_regex(arr, _DECIMAL)
     bad = pc.is_null(parts)
     if pc.any(bad).as_py():

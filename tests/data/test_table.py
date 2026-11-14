@@ -13,6 +13,7 @@ from finresearch.data.table import (
     from_parquet,
     to_parquet,
     versions_as_of,
+    events_between,
 )
 from tests.data.conftest import ROWS, make_table
 
@@ -127,3 +128,12 @@ def test_contract_violations(
 def test_time_columns_cannot_be_keys(macro: PitTable) -> None:
     with pytest.raises(TableError, match="cannot be keys"):
         PitTable("macro", ("series", "event_time"), macro.table)
+
+
+def test_events_between_keeps_every_version_inside_the_interval(macro: PitTable) -> None:
+    # September's two versions (30 September, first print and revision) and PPI's; the end
+    # of the interval is excluded, so October's observation of 31 October is left out.
+    september = events_between(macro, utc(2026, 9, 1), utc(2026, 10, 31))
+    assert sorted(september.table.column("value").to_pylist()) == [1.0, 3.0, 3.1]
+    assert events_between(macro, utc(2026, 10, 31), utc(2026, 11, 1)).num_rows == 1
+    assert events_between(macro, utc(2026, 11, 1), utc(2026, 12, 1)).num_rows == 0

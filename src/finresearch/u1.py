@@ -31,14 +31,14 @@ import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from finresearch import archive
 from finresearch.core.config import load_toml
 from finresearch.core.time import ensure_utc, month_start
-from finresearch.data import bars, funding, mark
+from finresearch.data import bars, funding, mark, open_interest
 from finresearch.data.manifest import (
     PREFIX,
     ManifestEntry,
@@ -48,12 +48,13 @@ from finresearch.data.manifest import (
 )
 from finresearch.data.partitioned import PartitionCard, PartitionWriter, month_dir
 from finresearch.data.store import Limits, PushReport, Remote, local_files, pull, push
-from finresearch.data.table import PitTable
+from finresearch.data.table import PitTable, events_between
 from finresearch.sources import (
     binance_archive,
     binance_funding,
     binance_klines,
     binance_mark,
+    binance_metrics,
     binance_trades,
     bybit_archive,
     bybit_trades,
@@ -84,6 +85,10 @@ class Product:
     parse: Parser  # one file's bytes, its manifest entry, its publication time -> rows
     concat: Callable[[Sequence[PitTable]], PitTable]  # one symbol's files, in period order
     problems: Callable[[PitTable], list[str]]  # rows kept but impossible, for the card's notes
+    # Days before a month whose daily files can hold rows of that month (a file whose last
+    # row is stamped with the next midnight). Those files are read as well, and each row goes
+    # to the partition of the month its event_time falls in.
+    edge_days: int = 0
 
 
 def _binance_klines(content: bytes, e: ManifestEntry, published: datetime) -> PitTable:
@@ -96,6 +101,10 @@ def _binance_funding(content: bytes, e: ManifestEntry, published: datetime) -> P
 
 def _binance_mark(content: bytes, e: ManifestEntry, published: datetime) -> PitTable:
     return binance_mark.parse_mark(binance_klines.csv_from_zip(content, e), e, published)
+
+
+def _binance_metrics(content: bytes, e: ManifestEntry, published: datetime) -> PitTable:
+    return binance_metrics.parse_metrics(binance_klines.csv_from_zip(content, e), e, published)
 
 
 def _no_problems(_: PitTable) -> list[str]:
@@ -126,6 +135,16 @@ PRODUCTS: dict[tuple[str, str], Product] = {
     ),
     (mark.NAME, "binance"): Product(
         mark.NAME, mark.KEYS, binance_archive, True, _binance_mark, mark.concat, mark.problems
+    ),
+    (open_interest.NAME, "binance"): Product(
+        open_interest.NAME,
+        open_interest.KEYS,
+        binance_archive,
+        True,
+        _binance_metrics,
+        open_interest.concat,
+        open_interest.problems,
+        edge_days=1,  # a day's file can end with the reading stamped with the next midnight
     ),
 }
 
@@ -230,22 +249,30 @@ class MonthInputs:
 
 
 def select(
-    monthly: Sequence[ManifestEntry], daily: Sequence[ManifestEntry], universe: str, month: date
+    monthly: Sequence[ManifestEntry],
+    daily: Sequence[ManifestEntry],
+    universe: str,
+    month: date,
+    edge_days: int = 0,
 ) -> MonthInputs:
     """For each contract in ``universe`` (a regular expression), its files for ``month``.
 
-    The monthly file when there is one, otherwise the daily files of that month.
+    The monthly file when there is one, otherwise the daily files of that month,
+    preceded by the daily files of the ``edge_days`` days before the month.
     """
     pattern = re.compile(universe)
     whole = {
         e.symbol: e for e in monthly if pattern.fullmatch(e.symbol) and _month(e.period) == month
     }
+    edge = (month - timedelta(days=edge_days)).isoformat()
     days: dict[str, list[ManifestEntry]] = {}
     for e in daily:
-        if pattern.fullmatch(e.symbol) and _month(e.period) == month and e.symbol not in whole:
+        inside = _month(e.period) == month and e.symbol not in whole
+        before = len(e.period) == len(edge) and edge <= e.period < month.isoformat()
+        if pattern.fullmatch(e.symbol) and (inside or before):
             days.setdefault(e.symbol, []).append(e)
     files = {
-        s: [whole[s]] if s in whole else sorted(days[s], key=lambda e: e.period)
+        s: [*sorted(days.get(s, []), key=lambda e: e.period), *([whole[s]] if s in whole else [])]
         for s in sorted(whole.keys() | days.keys())
     }
     return MonthInputs(month, files)
@@ -314,7 +341,8 @@ def plan(j: Job, remote: Remote, limits: Limits, work: Path) -> Plan:
             result.months.append(m)
             continue
         card = PartitionCard.from_json(remote.read(card_path).decode("utf-8"))
-        reason = _staleness(card, select(monthly, daily, j.universe, m))
+        chosen = select(monthly, daily, j.universe, m, j.product.edge_days)
+        reason = _staleness(card, chosen)
         if reason is not None:
             result.stale.append(reason)
     return result
@@ -364,6 +392,16 @@ def _symbol_rows(
     return (tables[0] if len(tables) == 1 else product.concat(tables)), inputs, empty
 
 
+def _in_month(t: PitTable, month: date) -> PitTable:
+    """The rows whose ``event_time`` falls in ``month``."""
+    after = month_start(month, 1)
+    return events_between(
+        t,
+        datetime(month.year, month.month, 1, tzinfo=UTC),
+        datetime(after.year, after.month, 1, tzinfo=UTC),
+    )
+
+
 def build(
     j: Job, month: date, remote: Remote, limits: Limits, work: Path, row_group_rows: int
 ) -> BuildResult:
@@ -373,7 +411,7 @@ def build(
     if f"{folder}/{j.exchange}.json" in remote.list(folder):
         raise U1Error(f"{folder}/{j.exchange} is already in the store; it is never rebuilt")
     monthly, daily, _ = _manifests(j, remote, limits, work / "manifests")
-    chosen = select(monthly, daily, j.universe, month)
+    chosen = select(monthly, daily, j.universe, month, product.edge_days)
     if not chosen.files:
         raise U1Error(f"no {month:%Y-%m} files for the universe in the manifests")
     out = work / "out"
@@ -386,7 +424,10 @@ def build(
     empty: list[str] = []
 
     def one(symbol: str) -> tuple[PitTable, dict[str, str], list[str]]:
-        return _symbol_rows(product, chosen.files[symbol])
+        table, used, without_rows = _symbol_rows(product, chosen.files[symbol])
+        if product.edge_days:
+            table = _in_month(table, month)
+        return table, used, without_rows
 
     with ThreadPoolExecutor(max_workers=j.workers) as pool:
         for batch in _batches(list(chosen.files), j.batch):
