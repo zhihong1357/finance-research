@@ -79,6 +79,23 @@ def test_sizes_in_scientific_notation_are_read_exactly() -> None:
     assert (bar["quote_volume"], bar["quote_volume_scale"]) == (137312500, 4)
 
 
+def test_float_rounding_error_in_times_and_prices_is_removed() -> None:
+    # As in files of late 2021: 0.2670002 s and 0.2669999 s both stand for 0.267 s, so the
+    # two trades tie and keep file order; 12.309999999999999 stands for 12.31.
+    t = parse_trades(
+        _gz(
+            _row(f"{DAY}.2670002", "Buy", "2", "12.309999999999999"),
+            _row(f"{DAY}.2669999", "Sell", "1", "12.5"),
+        ),
+        ENTRY,
+        PUBLISHED,
+    )
+    (bar,) = t.table.to_pylist()
+    assert (bar["open"], bar["close"], bar["open_scale"]) == (1231, 1250, 2)
+    # quote volume 2 * 12.31 + 1 * 12.5 = 37.12, at scale 2 (2 + 0)
+    assert (bar["quote_volume"], bar["quote_volume_scale"], bar["trades"]) == (3712, 2, 2)
+
+
 def test_a_renamed_folder_keeps_the_folder_as_symbol() -> None:
     url = "https://public.bybit.com/trading/AAAOLDUSDT/AAAUSDT2026-11-12.csv.gz"
     t = parse_trades(_gz(*TRADES), ManifestEntry("d", "AAAOLDUSDT", "2026-11-12", url), PUBLISHED)
@@ -93,7 +110,9 @@ def test_a_renamed_folder_keeps_the_folder_as_symbol() -> None:
         ([_row(f"{DAY}", "Buy", "1", "1", symbol="BBBUSDT")], "not AAAUSDT"),
         ([_row(f"{DAY}", "Hold", "1", "1")], "neither Buy nor Sell"),
         ([_row(f"{DAY}", "Buy", "1.2.3", "1")], "not a plain decimal"),
+        # 0.3 microseconds from a whole one: more than a float's rounding error
         ([_row(f"{DAY}.1234567", "Buy", "1", "1")], "finer than a microsecond"),
+        ([_row(f"{DAY}", "Buy", "1", "0.1234567890123456789")], "float rounding error"),
         ([], "no trades"),
     ],
 )
