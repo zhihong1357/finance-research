@@ -413,6 +413,9 @@ def test_metrics_files_become_the_open_interest_partition(
         "2026-10-31",
         ["2026-10-31 23:55:00,CCCUSDT,3,3,,,,", "2026-11-01 00:00:00,CCCUSDT,4,4,,,,"],
     )
+    # DDDUSDT: the file of 9 October ends with the midnight the file of 10 October starts with.
+    fake.put_metrics_rows("DDDUSDT", "2026-10-09", ["2026-10-10 00:00:00,DDDUSDT,5,5,,,,"])
+    fake.put_metrics_rows("DDDUSDT", "2026-10-10", ["2026-10-10 00:00:00,DDDUSDT,6,6,,,,"])
     remote = DirectoryRemote(tmp_path / "remote")
     fake.publish(remote, utc(2026, 11, 9))
     job = u1.job(CFG, "u1.open_interest_5m", "binance")
@@ -420,8 +423,11 @@ def test_metrics_files_become_the_open_interest_partition(
 
     result = u1.build(job, OCTOBER, remote, LIMITS, tmp_path / "b", row_group_rows=2)
     card = result.card
-    assert (card.name, card.rows, card.notes) == ("u1.open_interest_5m/v1/2026-10/binance", 5, [])
-    assert (len(card.inputs), result.from_daily) == (5, [])
+    assert (card.name, card.rows) == ("u1.open_interest_5m/v1/2026-10/binance", 6)
+    assert card.notes == [
+        "rows left out where two files held the same time: 1 in 1 symbol(s), first DDDUSDT"
+    ]
+    assert (len(card.inputs), result.from_daily) == (7, [])
 
     table = PartitionedTable(
         "u1.open_interest_5m", ("exchange", "symbol"), 1, tmp_path / "read", remote, LIMITS
@@ -441,6 +447,7 @@ def test_metrics_files_become_the_open_interest_partition(
         ("BBBUSDT", 7, 0, 4),
         ("CCCUSDT", 2, 0, None),  # stamped 1 October 00:00, from September's last file
         ("CCCUSDT", 3, 0, None),  # 4, stamped 1 November 00:00, waits for November
+        ("DDDUSDT", 6, 0, None),  # the row of the day's own file; 5 is left out
     ]  # fmt: skip
     september = u1.build(job, date(2026, 9, 1), remote, LIMITS, tmp_path / "s", row_group_rows=2)
     assert (september.card.rows, len(september.card.inputs)) == (1, 1)
