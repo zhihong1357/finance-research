@@ -16,4 +16,4 @@
 | [0008](0008-derived-results.md) | 由第三方数据得出的结果不进公开仓库 | 已采纳 |
 | [0009](0009-cboe-option-chains.md) | 美股期权链：先向 Cboe 申请许可，获批前暂停录制 | 已采纳 |
 | [0010](0010-u1-minute-data.md) | U1 的 1 分钟数据：Binance 取官方 K 线，Bybit 由逐笔成交加工 | 已采纳 |
-| [0011](0011-open-interest-time-labels.md) | 持仓量表的时间：保留归档的时间标签，可用时刻推后一个周期 | 提议 |
+| [0011](0011-open-interest-time-labels.md) | 持仓量表的时间：保留归档的时间标签，可用时刻推后一个周期 | 已采纳 |
