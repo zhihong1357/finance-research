@@ -16,7 +16,7 @@ from huggingface_hub.hf_api import RepoFile, RepoFolder
 
 from finresearch.core.config import load_toml
 from finresearch.data.hub import HubRemote
-from finresearch.data.store import StoreError, TransientStoreError
+from finresearch.data.store import RateLimitedStoreError, StoreError, TransientStoreError
 
 HUB = load_toml("storage")["hub"]
 
@@ -99,7 +99,7 @@ def test_the_adapter_maps_each_operation(tmp_path: Path) -> None:
         (RepositoryNotFoundError("gone", response=_response(404)), StoreError),
         (HfHubHTTPError("bad token", response=_response(401)), StoreError),
         (HfHubHTTPError("forbidden", response=_response(403)), StoreError),
-        (HfHubHTTPError("busy", response=_response(429)), TransientStoreError),
+        (HfHubHTTPError("busy", response=_response(429)), RateLimitedStoreError),
         (HfHubHTTPError("oops", response=_response(502)), TransientStoreError),
         (httpx2.ConnectError("reset"), TransientStoreError),
         (TimeoutError("slow"), TransientStoreError),

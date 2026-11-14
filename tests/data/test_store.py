@@ -6,12 +6,14 @@ import pytest
 from finresearch.data.store import (
     DirectoryRemote,
     Limits,
+    RateLimitedStoreError,
     StoreError,
     TransientStoreError,
     check_folder_limits,
     local_files,
     pull,
     push,
+    with_retries,
 )
 
 LIMITS = Limits(max_files_per_commit=2, max_entries_per_folder=4, retries=2, retry_wait_seconds=7.0)
@@ -99,6 +101,53 @@ def test_retries_run_out(tmp_path: Path) -> None:
     with pytest.raises(TransientStoreError):
         push(local, remote, "raw/s", LIMITS, "add", sleep)
     assert sleep.waits == [7.0, 7.0]  # retries = 2: three attempts, two waits
+
+
+def test_a_rate_limit_is_waited_out_on_its_own_budget() -> None:
+    patient = Limits(
+        max_files_per_commit=2,
+        max_entries_per_folder=4,
+        retries=1,
+        retry_wait_seconds=7.0,
+        rate_limit_retries=2,
+        rate_limit_wait_seconds=600.0,
+    )
+    outcomes: list[Exception | str] = [
+        RateLimitedStoreError("HTTP 429"),
+        TransientStoreError("HTTP 502"),
+        RateLimitedStoreError("HTTP 429"),
+        "done",
+    ]
+
+    def call() -> str:
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    sleep = Recorder()
+    assert with_retries(call, patient, sleep) == "done"
+    # Two long waits for the rate limit, one short one for the server error between them.
+    assert sleep.waits == [600.0, 7.0, 600.0]
+
+
+def test_a_rate_limit_that_does_not_lift_fails_in_the_end() -> None:
+    patient = Limits(2, 4, retries=1, retry_wait_seconds=7.0, rate_limit_retries=2,
+                     rate_limit_wait_seconds=600.0)  # fmt: skip
+
+    def call() -> str:
+        raise RateLimitedStoreError("HTTP 429")
+
+    sleep = Recorder()
+    with pytest.raises(RateLimitedStoreError):
+        with_retries(call, patient, sleep)
+    # The long waits first, then the ordinary retry, then the error.
+    assert sleep.waits == [600.0, 600.0, 7.0]
+    # Without a rate-limit budget (the default) it is an ordinary transient error.
+    plain = Recorder()
+    with pytest.raises(RateLimitedStoreError):
+        with_retries(call, LIMITS, plain)
+    assert plain.waits == [7.0, 7.0]
 
 
 def test_a_concurrent_commit_forces_a_fresh_look(tmp_path: Path) -> None:

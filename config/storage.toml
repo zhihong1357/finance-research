@@ -9,6 +9,10 @@ max_files_per_commit = 50       # Hugging Face 建议每次提交 50 到 100 个
 max_entries_per_folder = 9000   # 硬限制是每个文件夹 10,000 个，留出余量
 retries = 3                     # 网络或服务端的临时错误最多重试几次
 retry_wait_seconds = 15
+# Hugging Face 每个仓库每小时最多 128 次提交（2026-11-14 实测：一小时内加工了 100 多个月，之后的推送被拒绝，
+# 提示"约 1 小时后重试"）。被限速时每 10 分钟再试一次，最多等 80 分钟，加工好的分区不白做
+rate_limit_retries = 8
+rate_limit_wait_seconds = 600
 
 [selftest]
 prefix = "_selftest"            # 自检只写在这个文件夹下，结束后删除
