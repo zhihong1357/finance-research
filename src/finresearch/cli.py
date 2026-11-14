@@ -7,7 +7,7 @@
 ``finresearch collect plan | run``  scheduled collection, one job per source
 ``finresearch monitor``  data freshness, outage issues, keeping schedules alive
 ``finresearch archive plan | run``  archive manifests: list, keep what changed, spot-check
-``finresearch u1 plan | build``  U1's 1-minute bars: which months to build, build one month
+``finresearch u1 plan | build``  U1's tables: which months to build, build one month
 """
 
 import argparse
@@ -105,11 +105,13 @@ def _parser() -> argparse.ArgumentParser:
     arr.add_argument("--dataset", required=True)
     arr.add_argument("--seed", type=int, help="seed of the spot-check sample (default: today)")
 
-    uu = sub.add_parser("u1", help="U1's 1-minute bars").add_subparsers(dest="cmd", required=True)
+    uu = sub.add_parser("u1", help="U1's tables").add_subparsers(dest="cmd", required=True)
     up = uu.add_parser("plan", help="print the months to build as JSON")
-    up.add_argument("--exchange", choices=list(u1.EXCHANGES), help="one exchange (default: all)")
-    ub = uu.add_parser("build", help="build one month and push it")
-    ub.add_argument("--exchange", required=True, choices=list(u1.EXCHANGES))
+    up.add_argument("--table", help="one table of config/u1.toml (default: all)")
+    up.add_argument("--exchange", help="one exchange (default: all)")
+    ub = uu.add_parser("build", help="build one month of one table from one exchange; push it")
+    ub.add_argument("--table", required=True)
+    ub.add_argument("--exchange", required=True)
     ub.add_argument("--month", required=True, help="YYYY-MM")
     uc = uu.add_parser("crosscheck", help="rebuild sampled days from trades; compare with klines")
     uc.add_argument("--seed", type=int, help="seed of the sample (default: today)")
@@ -220,19 +222,22 @@ def _u1(args: argparse.Namespace) -> int:
                 print(f"report in the private dataset: {cc.report}")
                 return 0 if cc.passed else 1
             if args.cmd == "plan":
-                jobs: list[dict[str, str]] = []
-                for exchange in [args.exchange] if args.exchange else u1.EXCHANGES:
-                    plan = u1.plan(exchange, cfg, remote, limits, Path(tmp) / exchange)
+                todo: list[dict[str, str]] = []
+                tables = [args.table] if args.table else None
+                for j in u1.jobs(cfg, tables, args.exchange):
+                    plan = u1.plan(j, remote, limits, Path(tmp) / j.table / j.exchange)
                     for line in plan.stale:
-                        _warn(f"u1.bars_1m {exchange} {line}")
-                    jobs += [{"exchange": exchange, "month": f"{m:%Y-%m}"} for m in plan.months]
-                print(json.dumps(jobs))
+                        _warn(f"{j.label} {line}")
+                    todo += [
+                        {"table": j.table, "exchange": j.exchange, "month": f"{m:%Y-%m}"}
+                        for m in plan.months
+                    ]
+                print(json.dumps(todo))
                 return 0
             year, month = (int(x) for x in args.month.split("-"))
             result = u1.build(
-                args.exchange,
+                u1.job(cfg, args.table, args.exchange),
                 date(year, month, 1),
-                cfg,
                 remote,
                 limits,
                 Path(tmp),
@@ -248,7 +253,7 @@ def _u1(args: argparse.Namespace) -> int:
     if card.notes:
         # The notes come from the data itself (decision 0008): only their number goes in this
         # public log; the notes are on the partition card in the private dataset.
-        _warn(f"{card.name}: {len(card.notes)} note(s) on impossible bars, on the partition card")
+        _warn(f"{card.name}: {len(card.notes)} note(s) on impossible rows, on the partition card")
     print(f"pushed {len(result.pushed.added)} file(s)")
     return 0
 

@@ -26,18 +26,19 @@ from tests.sources.conftest import FakeServer, install
 LIMITS = Limits(
     max_files_per_commit=50, max_entries_per_folder=9000, retries=0, retry_wait_seconds=0
 )
+BARS = "u1.bars_1m"
 CFG: dict[str, Any] = {
-    "bars": {"format": 1},
-    "binance": {
-        "universe": "^[^_]+USDT$",
-        "part": "binance",
-        "monthly": "m",
-        "daily": "d",
-        "settle_days": 7,
-        "workers": 2,
-        "batch": 1,
+    "universe": {"binance": "^[^_]+USDT$", "bybit": "^[^_-]+USDT$"},
+    "tables": {
+        BARS: {
+            "format": 1,
+            "binance": {"monthly": "m", "daily": "d", "settle_days": 7, "workers": 2, "batch": 1},
+            "bybit": {"daily": "b", "settle_days": 7, "workers": 2, "batch": 1},
+        }
     },
 }
+BINANCE = u1.job(CFG, BARS, "binance")
+BYBIT = u1.job(CFG, BARS, "bybit")
 FILES = "https://data.binance.vision/data/futures/um/"
 OCTOBER = date(2026, 10, 1)
 # 2026-10-01 00:00 UTC is 1,790,812,800 seconds after the epoch (20727 days).
@@ -120,7 +121,7 @@ def _october(fake: FakeArchive) -> None:
 
 def test_the_monthly_file_wins_and_daily_files_fill_in(fake: FakeArchive) -> None:
     _october(fake)
-    chosen = u1.select(fake.entries["m"], fake.entries["d"], CFG["binance"]["universe"], OCTOBER)
+    chosen = u1.select(fake.entries["m"], fake.entries["d"], BINANCE.universe, OCTOBER)
     assert list(chosen.files) == ["AAAUSDT", "BBBUSDT"]
     assert [e.period for e in chosen.files["AAAUSDT"]] == ["2026-10"]
     assert [e.period for e in chosen.files["BBBUSDT"]] == ["2026-10-01", "2026-10-02"]
@@ -130,7 +131,7 @@ def test_a_month_is_built_once_it_has_settled(fake: FakeArchive) -> None:
     _october(fake)
     fake.put("d", "AAAUSDT", "2026-11-01", [_kline(OCT_MS + 31 * DAY_MS)])
     entries = [*fake.entries["m"], *fake.entries["d"]]
-    universe = CFG["binance"]["universe"]
+    universe = BINANCE.universe
     assert u1.buildable_months(entries, universe, utc(2026, 11, 7, 23), 7) == []  # listed too soon
     assert u1.buildable_months(entries, universe, utc(2026, 11, 8), 7) == [OCTOBER]
 
@@ -141,17 +142,17 @@ def test_a_listing_too_soon_after_the_month_plans_nothing(
     _october(fake)
     remote = DirectoryRemote(tmp_path / "remote")
     fake.publish(remote, utc(2026, 11, 3))
-    assert u1.plan("binance", CFG, remote, LIMITS, tmp_path / "p").months == []
+    assert u1.plan(BINANCE, remote, LIMITS, tmp_path / "p").months == []
 
 
 def test_a_month_becomes_one_partition_with_its_inputs(fake: FakeArchive, tmp_path: Path) -> None:
     _october(fake)
     remote = DirectoryRemote(tmp_path / "remote")
     fake.publish(remote, utc(2026, 11, 9))
-    plan = u1.plan("binance", CFG, remote, LIMITS, tmp_path / "p1")
+    plan = u1.plan(BINANCE, remote, LIMITS, tmp_path / "p1")
     assert (plan.months, plan.stale) == ([OCTOBER], [])
 
-    result = u1.build("binance", OCTOBER, CFG, remote, LIMITS, tmp_path / "b1", row_group_rows=2)
+    result = u1.build(BINANCE, OCTOBER, remote, LIMITS, tmp_path / "b1", row_group_rows=2)
     assert result.from_daily == ["BBBUSDT"]
     card = result.card
     assert (card.name, card.rows, card.notes) == ("u1.bars_1m/v1/2026-10/binance", 4, [])
@@ -170,14 +171,14 @@ def test_a_month_becomes_one_partition_with_its_inputs(fake: FakeArchive, tmp_pa
     assert w.table.column("event_time").to_pylist() == [utc(2026, 10, 1, 0, 2), utc(2026, 10, 2)]
     assert w.table.column("ingested_at").to_pylist() == [utc(2026, 11, 2)] * 2
 
-    plan = u1.plan("binance", CFG, remote, LIMITS, tmp_path / "p2")
+    plan = u1.plan(BINANCE, remote, LIMITS, tmp_path / "p2")
     assert (plan.months, plan.stale) == ([], [])
     with pytest.raises(u1.U1Error, match="never rebuilt"):
-        u1.build("binance", OCTOBER, CFG, remote, LIMITS, tmp_path / "b2", row_group_rows=2)
+        u1.build(BINANCE, OCTOBER, remote, LIMITS, tmp_path / "b2", row_group_rows=2)
 
     fake.put("d", "EEEUSDT", "2026-10-31", [_kline(OCT_MS + 30 * DAY_MS)])  # appeared later
     fake.publish(remote, utc(2026, 11, 16))
-    plan = u1.plan("binance", CFG, remote, LIMITS, tmp_path / "p3")
+    plan = u1.plan(BINANCE, remote, LIMITS, tmp_path / "p3")
     assert plan.stale == ["2026-10: the archive now has other files than the partition"]
 
 
@@ -188,39 +189,72 @@ def test_a_file_that_fails_its_checksum_stops_the_build(fake: FakeArchive, tmp_p
     remote = DirectoryRemote(tmp_path / "remote")
     fake.publish(remote, utc(2026, 11, 9))
     with pytest.raises(u1.U1Error, match="SHA-256"):
-        u1.build("binance", OCTOBER, CFG, remote, LIMITS, tmp_path / "b", row_group_rows=2)
+        u1.build(BINANCE, OCTOBER, remote, LIMITS, tmp_path / "b", row_group_rows=2)
     assert remote.list("canonical") == {}
 
 
 def test_without_manifests_nothing_can_be_planned(tmp_path: Path) -> None:
     with pytest.raises(u1.U1Error, match="run the archive workflow"):
-        u1.plan("binance", CFG, DirectoryRemote(tmp_path), LIMITS, tmp_path / "w")
+        u1.plan(BINANCE, DirectoryRemote(tmp_path), LIMITS, tmp_path / "w")
 
 
 def test_the_configured_universe_and_datasets_exist() -> None:
     cfg = u1.u1_config()
     archives = load_toml("archives")["datasets"]
-    b = cfg["binance"]
-    assert archives[b["monthly"]]["enabled"]
-    assert archives[b["daily"]]["enabled"]
-    pattern = re.compile(b["universe"])
+    jobs = u1.jobs(cfg)
+    assert [(j.table, j.exchange) for j in jobs] == [(BARS, "binance"), (BARS, "bybit")]
+    for j in jobs:
+        for dataset in (j.monthly, j.daily):
+            assert dataset is None or archives[dataset]["enabled"], dataset
+    assert [j.exchange for j in u1.jobs(cfg, exchange="bybit")] == ["bybit"]
+    assert u1.jobs(cfg, tables=["no.such_table"]) == []
+    for dataset in (cfg["crosscheck"]["trades"], cfg["crosscheck"]["klines"]):
+        assert archives[dataset]["enabled"]
+    pattern = re.compile(cfg["universe"]["binance"])
     assert pattern.fullmatch("BTCUSDT")
     assert pattern.fullmatch("币安人生USDT")
     for other in ("BTCUSDT_250328", "BTCUSDC", "ETHBTC", "ICPUSDT_SETTLED", "TLMUSDTSETTLED"):
         assert not pattern.fullmatch(other), other
 
 
-BYBIT_CFG: dict[str, Any] = {
-    "bars": {"format": 1},
-    "bybit": {
-        "universe": "^[^_-]+USDT$",
-        "part": "bybit",
-        "daily": "b",
-        "settle_days": 7,
-        "workers": 2,
-        "batch": 1,
-    },
-}
+def test_a_table_or_exchange_that_is_not_configured_is_refused() -> None:
+    with pytest.raises(u1.U1Error, match=r"has no u1\.bars_1m from okx"):
+        u1.job(CFG, BARS, "okx")
+    with pytest.raises(u1.U1Error, match=r"has no u1\.other from binance"):
+        u1.job(CFG, "u1.other", "binance")
+    unbuildable = {**CFG, "tables": {"u1.other": {"format": 1, "binance": {"daily": "d"}}}}
+    with pytest.raises(u1.U1Error, match=r"no code builds u1\.other from binance"):
+        u1.job(unbuildable, "u1.other", "binance")
+
+
+def test_a_file_published_again_makes_the_partition_stale(
+    fake: FakeArchive, tmp_path: Path
+) -> None:
+    _october(fake)
+    remote = DirectoryRemote(tmp_path / "remote")
+    fake.publish(remote, utc(2026, 11, 9))
+    card = u1.build(BINANCE, OCTOBER, remote, LIMITS, tmp_path / "b", row_group_rows=2).card
+    first = fake.entries["m"][0]
+    assert json.loads(card.listed[first.url]) == [
+        first.size,
+        first.etag,
+        "2026-11-02T00:00:00+00:00",
+        first.checksum_url,
+    ]
+    assert u1.plan(BINANCE, remote, LIMITS, tmp_path / "p1").stale == []
+    # The archive replaces the file under the same address: a new time and ETag.
+    again = ManifestEntry(
+        first.dataset, first.symbol, first.period, first.url, first.size, "0" * 32,
+        utc(2026, 11, 20), first.checksum_url,
+    )  # fmt: skip
+    write_increment(
+        [Row(Change.CHANGED, again)], remote.root / increment_path("m", utc(2026, 11, 23))
+    )
+    assert u1.plan(BINANCE, remote, LIMITS, tmp_path / "p2").stale == [
+        "2026-10: 1 file(s) published again since the partition was built"
+    ]
+
+
 TRADING = "https://public.bybit.com/trading/"
 OCT_S = OCT_MS // 1000
 
@@ -262,7 +296,7 @@ def test_without_a_description_the_download_gives_the_publication_time(
         [Row(Change.ADDED, e) for e in named_only],
         remote.root / increment_path("b", utc(2026, 11, 9)),
     )
-    u1.build("bybit", OCTOBER, BYBIT_CFG, remote, LIMITS, tmp_path / "w", row_group_rows=2)
+    u1.build(BYBIT, OCTOBER, remote, LIMITS, tmp_path / "w", row_group_rows=2)
     table = PartitionedTable(
         "u1.bars_1m", ("exchange", "symbol"), 1, tmp_path / "read", remote, LIMITS
     )
@@ -286,8 +320,8 @@ def test_bybit_trades_become_the_bybit_partition(
         [Row(Change.ADDED, e) for e in fake.entries],
         remote.root / increment_path("b", utc(2026, 11, 9)),
     )
-    assert u1.plan("bybit", BYBIT_CFG, remote, LIMITS, tmp_path / "p").months == [OCTOBER]
-    result = u1.build("bybit", OCTOBER, BYBIT_CFG, remote, LIMITS, tmp_path / "w", row_group_rows=2)
+    assert u1.plan(BYBIT, remote, LIMITS, tmp_path / "p").months == [OCTOBER]
+    result = u1.build(BYBIT, OCTOBER, remote, LIMITS, tmp_path / "w", row_group_rows=2)
     assert (result.card.name, result.card.rows, result.from_daily) == (
         "u1.bars_1m/v1/2026-10/bybit",
         4,
@@ -315,13 +349,19 @@ def test_a_bybit_file_that_changed_since_it_was_described_stops_the_build(
         remote.root / increment_path("b", utc(2026, 11, 9)),
     )
     with pytest.raises(u1.U1Error, match="bytes, the manifest lists"):
-        u1.build("bybit", OCTOBER, BYBIT_CFG, remote, LIMITS, tmp_path / "w", row_group_rows=2)
+        u1.build(BYBIT, OCTOBER, remote, LIMITS, tmp_path / "w", row_group_rows=2)
     assert remote.list("canonical") == {}
 
 
 CROSSCHECK_CFG: dict[str, Any] = {
     **CFG,
-    "crosscheck": {"trades": "t", "klines": "d", "sample": 5, "max_differing_share": 0.0},
+    "crosscheck": {
+        "trades": "t",
+        "klines": "d",
+        "sample": 5,
+        "max_differing_share": 0.0,
+        "workers": 2,
+    },
 }
 
 
