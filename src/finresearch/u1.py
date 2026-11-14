@@ -378,8 +378,12 @@ def file_rows(product: Product, e: ManifestEntry) -> tuple[PitTable, str]:
 
 def _symbol_rows(
     product: Product, entries: Sequence[ManifestEntry]
-) -> tuple[PitTable, dict[str, str], list[str]]:
-    """One symbol's rows for the month, the files they came from, and the files without rows."""
+) -> tuple[PitTable, dict[str, str], list[str], int]:
+    """One symbol's rows for the month and the files they came from.
+
+    Also the files without rows, and how many rows were left out when the
+    files were joined (a table's ``concat`` says when it does that).
+    """
     tables: list[PitTable] = []
     inputs: dict[str, str] = {}
     empty: list[str] = []
@@ -389,7 +393,8 @@ def _symbol_rows(
         inputs[e.url] = sha
         if table.num_rows == 0:
             empty.append(e.url)
-    return (tables[0] if len(tables) == 1 else product.concat(tables)), inputs, empty
+    joined = tables[0] if len(tables) == 1 else product.concat(tables)
+    return joined, inputs, empty, sum(t.num_rows for t in tables) - joined.num_rows
 
 
 def _in_month(t: PitTable, month: date) -> PitTable:
@@ -423,21 +428,30 @@ def build(
 
     empty: list[str] = []
 
-    def one(symbol: str) -> tuple[PitTable, dict[str, str], list[str]]:
-        table, used, without_rows = _symbol_rows(product, chosen.files[symbol])
+    left_out: dict[str, int] = {}
+
+    def one(symbol: str) -> tuple[str, PitTable, dict[str, str], list[str], int]:
+        table, used, without_rows, dropped = _symbol_rows(product, chosen.files[symbol])
         if product.edge_days:
             table = _in_month(table, month)
-        return table, used, without_rows
+        return symbol, table, used, without_rows, dropped
 
     with ThreadPoolExecutor(max_workers=j.workers) as pool:
         for batch in _batches(list(chosen.files), j.batch):
-            for table, used, without_rows in pool.map(one, batch):
+            for symbol, table, used, without_rows, dropped in pool.map(one, batch):
                 writer.add(table)
                 inputs.update(used)
                 notes.extend(product.problems(table))
                 empty.extend(without_rows)
+                if dropped:
+                    left_out[symbol] = dropped
     if empty:
         notes.append(f"input files without rows: {len(empty)}, first {min(empty)}")
+    if left_out:
+        notes.append(
+            f"rows left out where two files held the same time: {sum(left_out.values())}"
+            f" in {len(left_out)} symbol(s), first {min(left_out)}"
+        )
     card = writer.close(inputs, notes, {e.url: listed(e) for e in chosen.entries})
     from_daily = (
         [s for s, es in chosen.files.items() if es[0].period != f"{month:%Y-%m}"]

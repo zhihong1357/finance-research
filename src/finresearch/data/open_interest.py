@@ -92,8 +92,23 @@ def readings(
 
 
 def concat(tables: Sequence[PitTable]) -> PitTable:
-    """Tables of one contract (one per day) as one table."""
-    return PitTable(NAME, KEYS, pa.concat_tables([t.table for t in tables]))
+    """Tables of one contract, one per day's file in day order, as one table.
+
+    Where a file ends with the label the next file starts with, the earlier
+    file's row is left out. That happens where the source generated two
+    neighbouring days with different programs: one file runs to the next
+    midnight, the other starts at it, and the two rows are different readings
+    (decision 0011). Keeping the row of the day's own file keeps every label of
+    a day under one meaning; the caller can tell rows were left out from the
+    row counts.
+    """
+    table = pa.concat_tables([t.table for t in tables])
+    if table.num_rows > 1:
+        times = table.column(EVENT_TIME).combine_chunks()
+        repeated = pc.equal(times[:-1], times[1:])  # this row's label comes again in the next
+        keep = pa.concat_arrays([pc.invert(repeated), pa.array([True])])
+        table = table.filter(keep)
+    return PitTable(NAME, KEYS, table)
 
 
 def problems(t: PitTable) -> list[str]:

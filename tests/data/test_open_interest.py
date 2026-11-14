@@ -95,3 +95,17 @@ def test_days_of_one_contract_join_into_one_table() -> None:
     both = open_interest.concat([_table([US0]), _table([US0 + 5 * MINUTE])])
     assert both.num_rows == 2
     assert _table([]).num_rows == 0
+
+
+def test_a_label_shared_by_two_files_keeps_the_later_files_row() -> None:
+    # Yesterday's file runs to midnight, today's starts at it: two different readings
+    # under one label. Today's file keeps its label; yesterday's row is left out.
+    yesterday = _table([US0 - 5 * MINUTE, US0], open_interest=parse(["1", "2"]))
+    today = _table([US0, US0 + 5 * MINUTE], open_interest=parse(["3", "4"]))
+    both = open_interest.concat([yesterday, today])
+    assert both.table.column("open_interest").to_pylist() == [1, 3, 4]
+    assert both.table.column("event_time").to_pylist() == [
+        utc(2026, 11, 10, 23, 55),
+        utc(2026, 11, 11, 0, 0),
+        utc(2026, 11, 11, 0, 5),
+    ]
