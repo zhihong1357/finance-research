@@ -18,7 +18,7 @@ hundreds of millions of values go through here.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Context, Decimal
 from typing import Any, cast
 
 import pyarrow as pa
@@ -32,6 +32,14 @@ SCALE_TYPE = pa.int8()
 _DECIMAL = r"^(?P<i>-?\d+)(?:\.(?P<f>\d*))?$"
 # The same with a power of ten, as a float printed by Python looks: 1.0985e+06.
 _SCIENTIFIC = r"^-?\d+(?:\.\d*)?[eE][+-]?\d+$"
+# A 64-bit float carries 15 significant decimal digits for certain: every decimal of up to
+# 15 digits survives a trip through a float unchanged. Text with more digits than that,
+# from a source that prints floats, is a shorter decimal plus the float's rounding error.
+_FLOAT_DIGITS = 15
+# The rounded value must be shorter than this to count as a decimal with rounding error:
+# at least three of the float's digits must have come out as zeros.
+_CLEAN_DIGITS = 12
+_NOT_DIGITS = r"^-?0*\.?0*|\."  # sign, leading zeros and the point: what is left are digits
 
 
 class FixedPointError(ValueError):
@@ -63,15 +71,47 @@ def _expand(arr: Column) -> Column:
     return cast(Column, pc.replace_with_mask(arr, sci, pa.array(full, type=pa.string())))
 
 
-def parse(text: Column | Sequence[str], *, exponents: bool = False) -> Fixed:
+def _unfloat(arr: Column) -> Column:
+    """Replace float rounding error by the decimal it surrounds.
+
+    ``12.309999999999999`` becomes ``12.31``.
+    Only values written with more than 15 significant digits are touched. Each is
+    rounded to 15 digits; if what remains is not a short decimal, the value was
+    not rounding error and is refused.
+    """
+    # The stubs type the result for expressions only; with an array it is an array.
+    bare: Any = pc.replace_substring_regex(arr, _NOT_DIGITS, "")
+    long = pc.greater(pc.utf8_length(bare), pa.scalar(_FLOAT_DIGITS))
+    if not pc.any(long).as_py():
+        return arr
+    context = Context(prec=_FLOAT_DIGITS, rounding=ROUND_HALF_EVEN)
+    short: list[str] = []
+    for v in pc.filter(arr, long).to_pylist():
+        try:
+            d = context.plus(Decimal(str(v))).normalize()
+        except ArithmeticError as exc:
+            raise FixedPointError(f"not a plain decimal: {v!r}") from exc
+        if not d.is_finite() or len(d.as_tuple().digits) > _CLEAN_DIGITS:
+            raise FixedPointError(f"{v!r} is not a short decimal with float rounding error")
+        short.append(format(d, "f"))
+    return cast(Column, pc.replace_with_mask(arr, long, pa.array(short, type=pa.string())))
+
+
+def parse(text: Column | Sequence[str], *, exponents: bool = False, floats: bool = False) -> Fixed:
     """Decimal text to mantissas at the largest number of decimal places in the column.
 
     Every value keeps all of its digits: ``["1.5", "2", "0.25"]`` becomes
     ``[150, 200, 25]`` with scale 2. Raises ``FixedPointError`` on empty, null or
     non-decimal text (``NaN``; ``1e5`` too unless ``exponents``) and on mantissas
-    beyond 64 bits. ``exponents`` accepts scientific notation, for sources that
-    print some numbers as Python prints floats; the text is read exactly as
-    written.
+    beyond 64 bits.
+
+    Two options for sources that print numbers as Python prints floats.
+    ``exponents`` accepts scientific notation; the text is read exactly as
+    written. ``floats`` reads a value written with more than 15 significant
+    digits as the short decimal it is the rounding error of
+    (``12.309999999999999`` as ``12.31``), and refuses it if it is not near one.
+    Never set ``floats`` for a source that publishes true decimals: a quote
+    volume can have 18 digits, all of them real.
     """
     arr = text if isinstance(text, pa.Array) else pa.array(list(text), type=pa.string())
     if len(arr) == 0:
@@ -79,6 +119,8 @@ def parse(text: Column | Sequence[str], *, exponents: bool = False) -> Fixed:
     arr = arr.cast(pa.string())
     if exponents and arr.null_count == 0:
         arr = _expand(arr)
+    if floats and arr.null_count == 0:
+        arr = _unfloat(arr)
     parts = pc.extract_regex(arr, _DECIMAL)
     bad = pc.is_null(parts)
     if pc.any(bad).as_py():

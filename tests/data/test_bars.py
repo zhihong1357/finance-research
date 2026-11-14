@@ -122,6 +122,32 @@ def test_trades_out_of_time_order_are_refused() -> None:
         )  # fmt: skip
 
 
+def test_bars_from_trades_come_out_in_minute_order() -> None:
+    # 600 minutes three minutes apart, two trades in each: prices 1 then 2, 3 then 4, ...
+    # A hash grouping returns these minutes out of order (it did on real files), which
+    # must change neither the order of the bars nor which trade opens and closes each.
+    start = int(T0.timestamp()) * 1_000_000
+    times = [start + i * 3 * US + j for i in range(600) for j in (0, 1)]
+    prices = parse([str(k + 1) for k in range(1200)])
+    t = bars.from_trades(
+        "bybit", "AAAUSDT", pa.array(times, pa.int64()), prices, parse(["1"] * 1200),
+        pa.array([True] * 1200), utc(2026, 11, 13),
+    )  # fmt: skip
+    rows = t.table.to_pylist()
+    assert [r["event_time"] for r in rows] == [T0 + timedelta(minutes=3 * i) for i in range(600)]
+    assert [r["open"] for r in rows] == [2 * i + 1 for i in range(600)]
+    assert [r["close"] for r in rows] == [2 * i + 2 for i in range(600)]
+    assert [r["high"] for r in rows] == [2 * i + 2 for i in range(600)]
+    assert {r["trades"] for r in rows} == {2}
+
+
+def test_no_trades_give_no_bars() -> None:
+    none = pa.array([], pa.int64())
+    empty = parse([])
+    t = bars.from_trades("bybit", "AAAUSDT", none, empty, empty, pa.array([], pa.bool_()), T0)
+    assert t.num_rows == 0
+
+
 def test_a_price_times_size_beyond_64_bits_is_refused() -> None:
     big = parse(["4000000000"])
     with pytest.raises(FixedPointError, match="price times size"):
