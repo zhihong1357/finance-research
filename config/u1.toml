@@ -34,6 +34,16 @@ settle_days = 7
 workers = 16
 batch = 64
 
+[tables."u1.mark_1m"]
+format = 1
+
+[tables."u1.mark_1m".binance]
+monthly = "binance.um.mark_1m.monthly"     # 优先用月度文件
+daily = "binance.um.mark_1m.daily"         # 某个品种某个月没有月度文件时，改用逐日文件
+settle_days = 7
+workers = 16
+batch = 64
+
 [crosscheck]
 # 抽样核对（2.5.5，决策 0010）：随机抽一些合约日，用逐笔成交重算 1 分钟数据，与 Binance 的 K 线逐分钟比对。
 # 结果是由数据得出的质量报告，只存私有数据集（决策 0008）；公开日志只写是否通过

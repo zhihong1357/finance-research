@@ -55,6 +55,35 @@ def scale_column(name: str) -> str:
     return f"{name}_scale"
 
 
+def minute_columns(
+    exchange: str, symbol: str, start_us: Column, ingested_at: datetime
+) -> dict[str, Any]:
+    """The key and time columns of rows that each describe one minute of one contract.
+
+    ``start_us`` are minute starts in microseconds since the epoch (UTC), ascending.
+    ``event_time`` is the minute's start and ``available_at`` its end.
+    """
+    n = len(start_us)
+    starts = start_us.cast(pa.int64())
+    if starts.null_count:
+        raise BarError(f"{symbol}: missing minute starts")
+    if n:
+        # Integer division truncates; times after 1970 are positive, so this is the remainder.
+        whole = pc.multiply(pc.divide(starts, _BAR_US), _BAR_US)
+        if pc.any(pc.less(starts, _ZERO)).as_py() or pc.any(pc.not_equal(starts, whole)).as_py():
+            raise BarError(f"{symbol}: a bar does not start on a whole minute")
+        steps = pc.subtract(starts[1:], starts[:-1]) if n > 1 else pa.array([], pa.int64())
+        if pc.any(pc.less_equal(steps, _ZERO)).as_py():
+            raise BarError(f"{symbol}: minutes are repeated or out of order")
+    return {
+        "exchange": pa.array([exchange] * n, type=pa.string()),
+        "symbol": pa.array([symbol] * n, type=pa.string()),
+        EVENT_TIME: starts.cast(TIME_TYPE),
+        AVAILABLE_AT: pc.add(starts, _BAR_US).cast(TIME_TYPE),
+        INGESTED_AT: pa.array([ensure_utc(ingested_at)] * n, type=TIME_TYPE),
+    }
+
+
 def bars(
     exchange: str,
     symbol: str,
@@ -70,25 +99,9 @@ def bars(
     lengths = {len(v) for v in values.values()} | {len(trades)}
     if lengths != {n}:
         raise BarError(f"columns of different lengths: {sorted(lengths | {n})}")
-    starts = start_us.cast(pa.int64())
-    if starts.null_count or trades.null_count:
-        raise BarError("missing minute starts or trade counts")
-    if n:
-        # Integer division truncates; times after 1970 are positive, so this is the remainder.
-        whole = pc.multiply(pc.divide(starts, _BAR_US), _BAR_US)
-        if pc.any(pc.less(starts, _ZERO)).as_py() or pc.any(pc.not_equal(starts, whole)).as_py():
-            raise BarError(f"{symbol}: a bar does not start on a whole minute")
-        steps = pc.subtract(starts[1:], starts[:-1]) if n > 1 else pa.array([], pa.int64())
-        if pc.any(pc.less_equal(steps, _ZERO)).as_py():
-            raise BarError(f"{symbol}: minutes are repeated or out of order")
-    event = starts.cast(TIME_TYPE)
-    columns: dict[str, Any] = {
-        "exchange": pa.array([exchange] * n, type=pa.string()),
-        "symbol": pa.array([symbol] * n, type=pa.string()),
-        EVENT_TIME: event,
-        AVAILABLE_AT: pc.add(starts, _BAR_US).cast(TIME_TYPE),
-        INGESTED_AT: pa.array([ensure_utc(ingested_at)] * n, type=TIME_TYPE),
-    }
+    if trades.null_count:
+        raise BarError(f"{symbol}: missing trade counts")
+    columns = minute_columns(exchange, symbol, start_us, ingested_at)
     for name in DECIMALS:
         columns[name] = values[name].mantissa
         columns[scale_column(name)] = pa.array([values[name].scale] * n, type=SCALE_TYPE)

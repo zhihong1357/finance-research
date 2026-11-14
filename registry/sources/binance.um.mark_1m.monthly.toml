@@ -1,0 +1,16 @@
+id = "binance.um.mark_1m.monthly"
+name = "Binance U 本位合约 1 分钟标记价格 K 线（公开数据站，月度文件）"
+url = "https://data.binance.vision/?prefix=data/futures/um/monthly/markPriceKlines/"
+access = "archive"
+redownloadable = true
+official_checksums = true
+event_time = "这一分钟的开始时刻（UTC）"
+available_at = "这一分钟的结束时刻"
+rate_limit = "列目录走存储桶索引，每页 1,000 个文件；每周一次，16 个线程并行"
+terms_url = "https://data.binance.vision/Binance_Vision-Terms_of_Use.pdf"
+terms_checked = true
+known_issues = [
+  "条款：CC BY-NC-SA 4.0，只限学术研究和个人非生产用途的历史回测；由它得出的模型也不能用于实盘（架构 7.5）。原始文件不进公开仓库",
+  "月度文件在下个月初出现在归档里；归档出现的时刻不是可用时刻：这些行情当时是实时公开的",
+  "格式与成交 K 线相同，成交量各列恒为 0；count 是这一分钟记录了多少次标记价格（通常 60），为 0 的分钟沿用上一分钟的收盘价（2026-11-14 实测）",
+]
