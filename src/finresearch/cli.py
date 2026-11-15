@@ -10,6 +10,8 @@
 ``finresearch u1 plan | build | stored | verify | summary``
     U1's tables: which months to build, build one, which are stored, rebuild one
     without pushing and compare, how much is stored
+``finresearch revised build | verify``  tables of revised series (decision 0013): build
+    one from every collected response, or rebuild the latest build and compare
 """
 
 import argparse
@@ -21,7 +23,7 @@ import tomllib
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from finresearch import archive, collect, monitor, u1
+from finresearch import archive, collect, monitor, revised, u1
 from finresearch.core.config import load_toml
 from finresearch.core.time import format_utc, parse_utc
 from finresearch.data.hub import HubRemote
@@ -127,6 +129,15 @@ def _parser() -> argparse.ArgumentParser:
     uv.add_argument("--month", required=True, help="YYYY-MM")
     uc = uu.add_parser("crosscheck", help="rebuild sampled days from trades; compare with klines")
     uc.add_argument("--seed", type=int, help="seed of the sample (default: today)")
+
+    rv = sub.add_parser("revised", help="tables of revised series").add_subparsers(
+        dest="cmd", required=True
+    )
+    rv.add_parser("plan", help="print the tables of config/revised.toml as JSON")
+    rb = rv.add_parser("build", help="build one table from every response; push it if changed")
+    rb.add_argument("--table", required=True)
+    rc = rv.add_parser("verify", help="rebuild the latest build without pushing; compare")
+    rc.add_argument("--table", required=True)
     return ap
 
 
@@ -399,6 +410,34 @@ def _reproduce(args: argparse.Namespace) -> int:
     return _report(found, f"reproduced {len(trials)} trial(s): fingerprints match")
 
 
+def _revised(args: argparse.Namespace) -> int:
+    """Logs carry counts and verdicts only: the tables are third-party data (decision 0008)."""
+    if args.cmd == "plan":
+        print(json.dumps(sorted(revised.specs())))
+        return 0
+    s = revised.spec(args.table)
+    hub = load_toml("storage")["hub"]
+    remote, limits = HubRemote.from_environment(hub), Limits.from_config(hub)
+    try:
+        with tempfile.TemporaryDirectory(prefix="finresearch-revised-") as tmp:
+            if args.cmd == "build":
+                made = revised.build(s, remote, limits, Path(tmp), datetime.now(UTC))
+                if made.card is None:
+                    print(f"{s.table}: {made.responses} response(s), unchanged; nothing pushed")
+                else:
+                    print(
+                        f"{s.table}: {made.responses} response(s), build {made.card.built}, "
+                        f"{made.rows} rows, {made.pushed} file(s) pushed"
+                    )
+                return 0
+            check = revised.verify(s, remote, limits, Path(tmp))
+    except StoreError as exc:
+        print(f"failed: {exc}")
+        return 1
+    print(f"{check.table} build {check.built}: {check.verdict} ({check.detail})")
+    return 0 if check.verdict is revised.Verdict.SAME else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
 
@@ -417,7 +456,15 @@ def main(argv: list[str] | None = None) -> int:
             return _archive(args)
         if args.area == "u1":
             return _u1(args)
-    except (RunError, collect.CollectError, archive.ArchiveError, u1.U1Error) as exc:
+        if args.area == "revised":
+            return _revised(args)
+    except (
+        RunError,
+        collect.CollectError,
+        archive.ArchiveError,
+        u1.U1Error,
+        revised.RevisedError,
+    ) as exc:
         print(f"error: {exc}")
         return 1
     if args.cmd == "check":
