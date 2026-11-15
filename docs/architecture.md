@@ -193,6 +193,13 @@ flowchart TB
 - **更正**：费城联储会更正旧版本里的录入错误，所以两次抓取对同一版本说法不一时，以最新一次为准（`config/revised.toml` 的 `conflicts = "latest"`）；纽约联储则相反，说法不一就报错。
 - **录制**：每周一一次。工作簿的下载链接带着会变的哈希，每次从变量页面重新找。
 
+**Deribit 波动率指数**（Phase 2.6.6，`src/finresearch/sources/deribit_dvol.py`，数据源 `deribit.dvol`）。DVOL 是 Deribit 用自己的 BTC、ETH 期权算出的 30 天隐含波动率（年化百分比），相当于加密货币的 VIX。接口按 K 线返回（开始时刻、开、高、低、收），每次最多 1,000 根，从新到旧，带一个往前翻页的时刻。
+
+- **为什么是录制**：1 分钟 K 线接口只保留约 6 个月，过期就没了；1 小时 K 线从 2021 年 3 月指数开始时都还在。所以每天取最近 2 天（重叠，漏跑一次不丢），加入后两天内把还能取到的全部取下来，并异地备份。
+- **时间**：`event_time` 是 K 线开始，`available_at` 是 K 线结束：收盘值要等这一分钟、这一小时过完才知道。抓取时还没收盘的那一根不存。
+- **一次请求说不清自己是什么**：一页 K 线里没有币种和周期，所以解析时也读原始层记下的请求网址（`Adapter.parse_url`）。
+- **规范层**：还没有。录制类数据（Deribit 盘口摘要、Hyperliquid、DVOL）的规范层是 2.10，按月分区、月份结束后写一次。
+
 **异地备份**（Phase 2.9，[决策 0014](decisions/0014-offsite-backup.md)，`src/finresearch/backup.py`、`data/gdrive.py`，配置 `config/backup.toml`，工作流"异地备份"）。丢了就找不回的原始数据（快照类数据源，和修订版本表用到的数据源）每天在 Google Drive 再存一份。每个数据源的每一天打成一个包 `<数据源>__<年-月-日>.tar`：原始文件原样放进去，再加一份每个文件的 SHA-256 清单；文件名排序、时间和属主固定，同一天总是同样的字节。当天还没结束，不打包。已经传过的不再传；第一次运行补历史时，一次最多传 `max_days_per_run` 个包，分几次做完。上传后核对 Drive 报告的 MD5。授权只用 `drive.file` 范围，应用只看得到它自己建的文件。每次运行在数据集的 `backup/log/` 下留一条记录，监控据此判断备份是否中断（超过 50 小时开问题）。手动运行时选"演练"：随机下载几个包，解开，与数据集里的文件逐字节比对。
 
 ### 2.3 时点查询接口
@@ -501,6 +508,7 @@ flowchart LR
 | 快照数据源的大小 | Deribit 每次 6 个请求共约 3.1 MB（USDC 期权约 2 MB、3,200 个合约；BTC 期权约 980 个）；Hyperliquid 每次约 72 KB、235 个永续。从 GitHub Actions 访问 Deribit、OKX、Hyperliquid 都可行（旧仓库的录制） | 2026-11-14 实测 |
 | U1 五张表的规模 | Binance 1 分钟数据 83 个月（2019-12 到 2026-10）、993,774,961 行、23,227 个输入文件、18.88 GB；Bybit 1 分钟数据 80 个月（2020-03 到 2026-10）、797,362,079 行、673,945 个逐笔成交文件、14.65 GB；资金费率 82 个月（2020-01 起）、2,854,110 行、0.02 GB；标记价格 83 个月、1,004,093,017 行、2.29 GB；持仓量 74 个月（2020-09 起）、165,776,005 行、614,342 个文件、3.12 GB。数据集共 39.05 GB，额度 100 GB | 2026-11-15，[汇总第 43673599669 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43673599669)；Bybit 由[第 43524076556](https://github.com/zhihong1357/finance-research/actions/runs/43524076556)、[43547597119](https://github.com/zhihong1357/finance-research/actions/runs/43547597119)、[43606187472 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43606187472)加工；存储见[监控第 43673307225 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43673307225) |
 | U1 重建核对（2.5.7） | 用现在的代码按归档清单在运行器上重新加工、比对内容指纹：资金费率 82 个月、Binance 1 分钟数据 83 个月、标记价格 83 个月、持仓量 74 个月，全部一致，没有"输入变了"或"结果变了"的月份。Bybit 80 个月中已核对 34 个，全部一致，其余还在跑 | 2026-11-15，[持仓量第 43673293729 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43673293729)、[Bybit 第 43673299665 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43673299665) |
+| Deribit DVOL 接口能取多早 | 按一天的窗口二分查找最早还有数据的日子：1 秒 K 线约 32 天，1 分钟约 187 天，1 小时和 12 小时至少 2,000 天（日线从 2021-03-24 起）。全部取一遍：BTC、ETH 的 1 分钟各约 26.7 万根，1 小时各 49,494 根，共 636 个请求、约 24 MB | 2026-11-15 实测（云端沙盒） |
 | 中断通知与恢复 | 演练中，故意失败的数据源超过上限后，下一次监控开出问题（[#16](https://github.com/zhihong1357/finance-research/issues/16)，由 github-actions 机器人开）；恢复后下一次监控留言并关闭。同一次采集里另一个数据源照常入库。用 `GITHUB_TOKEN` 请求启用定时任务的调用成功 | 2026-11-13 实测 |
 | 宏观的历史公布版本 | FRED 接口按 `realtime_start`、`realtime_end` 返回历史版本（需要免费注册的 API 密钥），但它的条款禁止存档，见 7.5。费城联储的实时数据集（RTDSM）提供主要宏观变量的全部历史版本下载 | [FRED 文档](https://fred.stlouisfed.org/docs/api/fred/realtime_period.html)；[费城联储](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists) |
 | 2.6 各数据源的公布时间 | SOFR：每个工作日约 8:00（美东）公布前一工作日的利率；当天发现数据有误时约 14:30 修订一次，之后不再修改已公布的值。费城联储实时数据集：每月月底更新，每个版本的全部历史在列头的版本日期公开。CFTC 持仓报告：周二的持仓，通常周五 15:30（美东）公布，已公布的历史不回改；2025 年 10 月 1 日到 11 月 12 日政府停摆期间暂停，9 月 30 日那期原定 10 月 3 日，实际 11 月 19 日才公布 | [纽约联储 SOFR](https://www.newyorkfed.org/markets/reference-rates/sofr)、[修订规则](https://www.newyorkfed.org/markets/reference-rates/additional-information-about-reference-rates)；[费城联储数据页](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists)；[CFTC 持仓报告说明](https://www.cftc.gov/MarketReports/CommitmentsOfTraders/index.htm)、[停摆后的补发日程](https://mondovisione.com/media-and-resources/news/cftc-to-resume-publishing-cot-reports-wednesday-the-agency-also-announced-a-c-20251118/)；2026-11-15 读取 |

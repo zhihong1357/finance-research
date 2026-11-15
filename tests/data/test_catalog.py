@@ -37,7 +37,7 @@ def test_raw_to_tables_and_back(tmp_path: Path) -> None:
     store = RawStore(tmp_path)
     store.save("s.x", "a", "u", AT, _response("table.a"))
     store.save("s.x", "b", "u", AT, _response("table.b"))
-    names = normalize(store, "s.x", parse, tmp_path / "tables")
+    names = normalize(store, "s.x", lambda c, t, _url: parse(c, t), tmp_path / "tables")
     assert names == ["table.a", "table.b"]
     loaded = load_tables(tmp_path / "tables")
     assert sorted(loaded) == names
@@ -48,8 +48,8 @@ def test_raw_to_tables_and_back(tmp_path: Path) -> None:
 def test_repeated_fetches_and_empty_sources_are_refused(tmp_path: Path) -> None:
     store = RawStore(tmp_path)
     with pytest.raises(CatalogError, match=r"nothing for s\.x"):
-        normalize(store, "s.x", parse, tmp_path / "tables")
+        normalize(store, "s.x", lambda c, t, _url: parse(c, t), tmp_path / "tables")
     store.save("s.x", "a", "u", AT, _response("table.a"))
     store.save("s.x", "a", "u", utc(2026, 11, 14), _response("table.a"))
     with pytest.raises(CatalogError, match="more than one raw response"):
-        normalize(store, "s.x", parse, tmp_path / "tables")
+        normalize(store, "s.x", lambda c, t, _url: parse(c, t), tmp_path / "tables")

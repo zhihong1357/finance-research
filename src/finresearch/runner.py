@@ -122,7 +122,7 @@ def build_tables(study: Study, config: dict[str, Any], work: Path, now: datetime
         for r in adapter.fetch(config, now):
             store.save(source, r.name, r.url, r.fetched_at, r.content)
         directory = work / "tables" / source
-        normalize(store, source, adapter.parse, directory)
+        normalize(store, source, adapter.parse_record, directory)
         tables.extend(load_tables(directory).values())
     return tables
 
