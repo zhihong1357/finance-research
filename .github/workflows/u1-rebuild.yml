@@ -1,0 +1,96 @@
+# U1 时点表的重建核对（Phase 2.5.7）：用现在的代码，按归档清单把已经在数据集里的分区重新加工一遍，
+# 与数据集里的分区卡片比对内容指纹。只在运行器上重建，不删除、不推送任何东西。
+# 每个月一个任务，一个失败不影响其他；指纹一致的任务成功，不一致的任务失败并写明是归档变了还是结果变了。
+# 只能手动运行。一次运行最多 256 个任务，所以一次只核对一张表、一个交易所。
+name: U1 重建核对
+
+on:
+  workflow_dispatch:
+    inputs:
+      table:
+        description: 核对这张表（config/u1.toml 里的表名，如 u1.bars_1m）
+        required: true
+      exchange:
+        description: 核对这个交易所
+        required: true
+        type: choice
+        options: [binance, bybit]
+      months:
+        description: 只核对这些月份（如 2026-09,2026-10；留空核对数据集里的全部月份）
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  # 与"U1 时点表"共用排队：Bybit 受限速，重建核对和加工不能同时向 Bybit 下载
+  group: ${{ inputs.exchange == 'binance' && 'u1-binance' || 'u1-bars' }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: 列出要核对的月份
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      jobs: ${{ steps.plan.outputs.jobs }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - id: plan
+        name: 列出
+        env:
+          TABLE: ${{ inputs.table }}
+          EXCHANGE: ${{ inputs.exchange }}
+          MONTHS: ${{ inputs.months }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET: ${{ vars.HF_DATASET }}
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+        run: |
+          if [ -n "$MONTHS" ]; then
+            echo "jobs=$(jq -cn --arg t "$TABLE" --arg e "$EXCHANGE" --arg m "$MONTHS" '$m | split(",") | map(gsub(" "; "")) | map({table: $t, exchange: $e, month: .})')" >> "$GITHUB_OUTPUT"
+          else
+            echo "jobs=$(uv run finresearch u1 stored --table "$TABLE" --exchange "$EXCHANGE")" >> "$GITHUB_OUTPUT"
+          fi
+
+  verify:
+    needs: plan
+    if: needs.plan.outputs.jobs != '[]'
+    name: ${{ matrix.table }} ${{ matrix.exchange }} ${{ matrix.month }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300       # 与加工一样：Bybit 近期的一个月要下载几十 GB
+    strategy:
+      fail-fast: false
+      # 与加工相同：有 Bybit 的运行最多 2 个任务，只有 Binance 的最多 4 个
+      max-parallel: ${{ inputs.exchange == 'binance' && 4 || 2 }}
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.jobs) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - name: 下载、核对、重建、比对
+        env:
+          TABLE: ${{ matrix.table }}
+          EXCHANGE: ${{ matrix.exchange }}
+          MONTH: ${{ matrix.month }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET: ${{ vars.HF_DATASET }}
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+        run: uv run finresearch u1 verify --table "$TABLE" --exchange "$EXCHANGE" --month "$MONTH"

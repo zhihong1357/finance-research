@@ -7,7 +7,8 @@
 ``finresearch collect plan | run``  scheduled collection, one job per source
 ``finresearch monitor``  data freshness, outage issues, keeping schedules alive
 ``finresearch archive plan | run``  archive manifests: list, keep what changed, spot-check
-``finresearch u1 plan | build``  U1's tables: which months to build, build one month
+``finresearch u1 plan | build | stored | verify``  U1's tables: which months to build, build one,
+    which are stored, rebuild one without pushing and compare
 """
 
 import argparse
@@ -113,6 +114,13 @@ def _parser() -> argparse.ArgumentParser:
     ub.add_argument("--table", required=True)
     ub.add_argument("--exchange", required=True)
     ub.add_argument("--month", required=True, help="YYYY-MM")
+    ur = uu.add_parser("stored", help="print the months already in the store as JSON")
+    ur.add_argument("--table", help="one table of config/u1.toml (default: all)")
+    ur.add_argument("--exchange", help="one exchange (default: all)")
+    uv = uu.add_parser("verify", help="rebuild one stored month without pushing; compare")
+    uv.add_argument("--table", required=True)
+    uv.add_argument("--exchange", required=True)
+    uv.add_argument("--month", required=True, help="YYYY-MM")
     uc = uu.add_parser("crosscheck", help="rebuild sampled days from trades; compare with klines")
     uc.add_argument("--seed", type=int, help="seed of the sample (default: today)")
     return ap
@@ -221,6 +229,35 @@ def _u1(args: argparse.Namespace) -> int:
                 print(f"klines agree with trades within the threshold: {verdict}")
                 print(f"report in the private dataset: {cc.report}")
                 return 0 if cc.passed else 1
+            if args.cmd == "stored":
+                tables = [args.table] if args.table else None
+                print(
+                    json.dumps(
+                        [
+                            {"table": j.table, "exchange": j.exchange, "month": f"{m:%Y-%m}"}
+                            for j in u1.jobs(cfg, tables, args.exchange)
+                            for m in u1.stored_months(j, remote)
+                        ]
+                    )
+                )
+                return 0
+            if args.cmd == "verify":
+                year, month = (int(x) for x in args.month.split("-"))
+                check = u1.rebuild_check(
+                    u1.job(cfg, args.table, args.exchange),
+                    date(year, month, 1),
+                    remote,
+                    limits,
+                    Path(tmp),
+                    int(storage["canonical"]["row_group_rows"]),
+                )
+                name = check.stored.name
+                print(f"{name}: rebuilt {check.rebuilt.fingerprint}")
+                print(f"{name}: stored  {check.stored.fingerprint}")
+                if check.verdict is not u1.Verdict.SAME:
+                    _warn(f"{name}: {check.verdict}: {check.detail or 'content differs'}")
+                print(f"{name}: {check.verdict}")
+                return 0 if check.verdict is u1.Verdict.SAME else 1
             if args.cmd == "plan":
                 todo: list[dict[str, str]] = []
                 tables = [args.table] if args.table else None
@@ -253,7 +290,7 @@ def _u1(args: argparse.Namespace) -> int:
     if card.notes:
         # The notes come from the data itself (decision 0008): only their number goes in this
         # public log; the notes are on the partition card in the private dataset.
-        _warn(f"{card.name}: {len(card.notes)} note(s) on impossible rows, on the partition card")
+        _warn(f"{card.name}: {len(card.notes)} note(s) on the partition card")
     print(f"pushed {len(result.pushed.added)} file(s)")
     return 0
 

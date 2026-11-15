@@ -238,6 +238,43 @@ def test_a_month_becomes_one_partition_with_its_inputs(fake: FakeArchive, tmp_pa
     assert plan.stale == ["2026-10: the archive now has other files than the partition"]
 
 
+def test_a_stored_partition_rebuilds_to_the_same_content(fake: FakeArchive, tmp_path: Path) -> None:
+    _october(fake)
+    remote = DirectoryRemote(tmp_path / "remote")
+    fake.publish(remote, utc(2026, 11, 9))
+    with pytest.raises(u1.U1Error, match="not in the store"):
+        u1.rebuild_check(BINANCE, OCTOBER, remote, LIMITS, tmp_path / "c0", row_group_rows=2)
+    assert u1.stored_months(BINANCE, remote) == []
+    u1.build(BINANCE, OCTOBER, remote, LIMITS, tmp_path / "b", row_group_rows=2)
+    assert u1.stored_months(BINANCE, remote) == [OCTOBER]
+    assert u1.stored_months(BYBIT, remote) == []
+    before = remote.list("")
+
+    check = u1.rebuild_check(BINANCE, OCTOBER, remote, LIMITS, tmp_path / "c1", row_group_rows=2)
+    assert (check.verdict, check.detail) == (u1.Verdict.SAME, "")
+    assert check.rebuilt.fingerprint == check.stored.fingerprint
+    assert remote.list("") == before  # nothing pushed
+
+    # The stored card as if an older version of the code had produced other rows.
+    card_path = remote.root / "canonical/u1.bars_1m/v1/2026-10/binance.json"
+    card = json.loads(card_path.read_text())
+    card_path.write_text(json.dumps({**card, "fingerprint": "sha256:" + "0" * 64, "rows": 5}))
+    check = u1.rebuild_check(BINANCE, OCTOBER, remote, LIMITS, tmp_path / "c2", row_group_rows=2)
+    assert (check.verdict, check.detail) == (u1.Verdict.DIFFERENT, "rows 5 -> 4")
+
+    # As if the archive had published one input again with other bytes.
+    url = min(card["inputs"])
+    inputs = {**card["inputs"], url: "0" * 64}
+    card_path.write_text(
+        json.dumps({**card, "fingerprint": "sha256:" + "0" * 64, "inputs": inputs})
+    )
+    check = u1.rebuild_check(BINANCE, OCTOBER, remote, LIMITS, tmp_path / "c3", row_group_rows=2)
+    assert (check.verdict, check.detail) == (
+        u1.Verdict.INPUTS_CHANGED,
+        "1 input file(s) with other bytes",
+    )
+
+
 def test_a_file_that_fails_its_checksum_stops_the_build(fake: FakeArchive, tmp_path: Path) -> None:
     _october(fake)
     url = fake.entries["m"][0].url
