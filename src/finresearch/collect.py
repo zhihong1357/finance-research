@@ -83,5 +83,5 @@ def run_source(
         for folder in folders
     ]
     for record in records:
-        adapter.parse(store.read(record), record.fetched_at)
+        adapter.parse_record(store.read(record), record.fetched_at, record.url)
     return RunResult(source, len(records), reports)

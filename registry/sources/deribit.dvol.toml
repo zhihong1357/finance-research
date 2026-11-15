@@ -1,0 +1,17 @@
+id = "deribit.dvol"
+name = "Deribit 波动率指数 DVOL（BTC、ETH），1 分钟和 1 小时 K 线"
+url = "https://www.deribit.com/api/v2/public/get_volatility_index_data"
+access = "snapshot"
+redownloadable = false
+event_time = "K 线的开始时刻（UTC）"
+available_at = "K 线的结束时刻：指数在这一分钟或这一小时收盘后才知道收盘值；抓取时还没收盘的那一根不存"
+rate_limit = "公开接口；每次最多 1,000 根，平常每天 4 个请求，第一次补历史约 640 个请求（每秒最多 5 个）"
+terms_url = "https://support.deribit.com/hc/en-us/articles/25944532191645-Deribit-Exchange-Membership-Terms-Deribit-FZE"
+terms_checked = true
+data_level = "L1"
+known_issues = [
+  "条款：市场数据和派生数据只限个人使用，不得发布。原始文件只放私有数据集，由它得出的结果不进公开仓库（决策 0008）",
+  "1 分钟 K 线接口只保留约 6 个月（2026-11-15 实测约 187 天），所以按录制处理，归为快照类；1 小时 K 线从 2021 年 3 月起都还能取",
+  "1 秒 K 线只保留约 1 个月，不录",
+  "规范层的表还没有：录下的原始文件先进私有数据集并异地备份，表在录制类数据的规范层一步里一起做",
+]

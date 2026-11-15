@@ -3,6 +3,7 @@
 from finresearch.sources import (
     cftc_cot,
     deribit,
+    deribit_dvol,
     heartbeat,
     hyperliquid,
     nyfed_rates,
@@ -17,6 +18,7 @@ ADAPTERS: dict[str, Adapter] = {
         synthetic.ADAPTER,
         *heartbeat.ADAPTERS,
         deribit.ADAPTER,
+        deribit_dvol.ADAPTER,
         hyperliquid.ADAPTER,
         nyfed_rates.ADAPTER,
         philly_rtdsm.ADAPTER,

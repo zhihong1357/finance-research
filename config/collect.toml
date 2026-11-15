@@ -10,6 +10,9 @@ cron = "41 6 * * 1"             # 每周一 06:41：更新慢的数据源（费�
 [groups.cot]
 cron = "47 20 * * 1,2,5"        # 周一、二、五 20:47 UTC：CFTC 持仓报告 15:30（纽约）公布之后；周一、二接假日顺延的
 
+[groups.daily]
+cron = "53 1 * * *"             # 每天 01:53 UTC
+
 [groups.every4h]
 cron = "23 */4 * * *"           # 每 4 小时：快照类数据源，错过就补不回来
 
@@ -20,7 +23,8 @@ retry_wait_seconds = 5
 user_agent = "finresearch/0.1 (personal research; https://github.com/zhihong1357/finance-research)"
 
 [http.max_per_second]           # 每个主机每秒最多几个请求（所有线程合计）
-"public.bybit.com" = 5          # 一个地址几分钟内发了约 2,000 个请求，Bybit 就回 403（2026-11-13 两次实测）；每秒 5 个是每 5 分钟 1,500 个
+"public.bybit.com" = 5
+"www.deribit.com" = 5           # DVOL 第一次补历史要几百个请求，放慢一点          # 一个地址几分钟内发了约 2,000 个请求，Bybit 就回 403（2026-11-13 两次实测）；每秒 5 个是每 5 分钟 1,500 个
 
 [sources."heartbeat.canary"]
 group = "every8h"
@@ -78,6 +82,19 @@ lookback_days = 60              # 平常只取最近 60 天
 backfill_days = 7               # 加入后一周内取全部历史
 full_history_months = [1, 4, 7, 10]   # 每季度第一个月的前几天再取一次全部历史，核对旧报告没有被改
 full_history_first_days = 7
+
+[sources."deribit.dvol"]
+group = "daily"
+max_age_hours = 26
+added = "2026-11-16T00:00:00Z"
+enabled = true
+currencies = ["BTC", "ETH"]
+lookback_days = 2               # 平常取最近 2 天：一次没跑成，下一次补上
+backfill_days = 2               # 加入后两天内取全部还能取到的历史（约 640 个请求、24 MB）
+
+[sources."deribit.dvol".resolutions]
+"60" = { backfill_days_back = 200 }     # 1 分钟：接口只留约 6 个月，过期就没了
+"3600" = { backfill_days_back = 2200 }  # 1 小时：接口从 2021 年 3 月指数开始时就有
 
 [monitor]
 issue_marker = "finresearch:outage"   # 监控开的问题里带这个标记，用来认出自己开过的问题

@@ -12,7 +12,7 @@ from pathlib import Path
 from finresearch.data.raw import RawStore
 from finresearch.data.table import PitTable, from_parquet, to_parquet
 
-Parser = Callable[[bytes, datetime], PitTable]
+Parser = Callable[[bytes, datetime, str], PitTable]  # content, fetch time, URL
 
 
 class CatalogError(RuntimeError):
@@ -28,7 +28,7 @@ def normalize(store: RawStore, source: str, parse: Parser, directory: Path) -> l
     records = store.records(source)
     if not records:
         raise CatalogError(f"the raw layer has nothing for {source}")
-    tables = [parse(store.read(r), r.fetched_at) for r in records]
+    tables = [parse(store.read(r), r.fetched_at, r.url) for r in records]
     repeated = sorted(n for n, k in Counter(t.name for t in tables).items() if k > 1)
     if repeated:
         raise CatalogError(f"{source}: more than one raw response for {repeated}")

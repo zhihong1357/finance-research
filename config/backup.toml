@@ -16,6 +16,7 @@ sources = [
   "nyfed.reference_rates",
   "philly.rtdsm",
   "cftc.cot_tff",
+  "deribit.dvol",
   "heartbeat.canary",
 ]
 

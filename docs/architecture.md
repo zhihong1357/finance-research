@@ -200,6 +200,13 @@ flowchart TB
 - **晚了就报错**：每次采集都检查下一期该出没出。过了规则的时刻一天还没有，采集失败，提醒把新的延期写进配置，而不是悄悄标错日期。
 - **录制**：每周一、二、五 20:47 UTC（周五公布之后；周一、二接假日顺延的）。平常取最近 60 天；加入后一周内和每季度第一个月的前几天取全部历史，核对旧报告没有被改（CFTC 说明已公布的不回改，所以说法不一就报错）。
 
+**Deribit 波动率指数**（Phase 2.6.6，`src/finresearch/sources/deribit_dvol.py`，数据源 `deribit.dvol`）。DVOL 是 Deribit 用自己的 BTC、ETH 期权算出的 30 天隐含波动率（年化百分比），相当于加密货币的 VIX。接口按 K 线返回（开始时刻、开、高、低、收），每次最多 1,000 根，从新到旧，带一个往前翻页的时刻。
+
+- **为什么是录制**：1 分钟 K 线接口只保留约 6 个月，过期就没了；1 小时 K 线从 2021 年 3 月指数开始时都还在。所以每天取最近 2 天（重叠，漏跑一次不丢），加入后两天内把还能取到的全部取下来，并异地备份。
+- **时间**：`event_time` 是 K 线开始，`available_at` 是 K 线结束：收盘值要等这一分钟、这一小时过完才知道。抓取时还没收盘的那一根不存。
+- **一次请求说不清自己是什么**：一页 K 线里没有币种和周期，所以解析时也读原始层记下的请求网址（`Adapter.parse_url`）。
+- **规范层**：还没有。录制类数据（Deribit 盘口摘要、Hyperliquid、DVOL）的规范层是 2.10，按月分区、月份结束后写一次。
+
 **异地备份**（Phase 2.9，[决策 0014](decisions/0014-offsite-backup.md)，`src/finresearch/backup.py`、`data/gdrive.py`，配置 `config/backup.toml`，工作流"异地备份"）。丢了就找不回的原始数据（快照类数据源，和修订版本表用到的数据源）每天在 Google Drive 再存一份。每个数据源的每一天打成一个包 `<数据源>__<年-月-日>.tar`：原始文件原样放进去，再加一份每个文件的 SHA-256 清单；文件名排序、时间和属主固定，同一天总是同样的字节。当天还没结束，不打包。已经传过的不再传；第一次运行补历史时，一次最多传 `max_days_per_run` 个包，分几次做完。上传后核对 Drive 报告的 MD5。授权只用 `drive.file` 范围，应用只看得到它自己建的文件。每次运行在数据集的 `backup/log/` 下留一条记录，监控据此判断备份是否中断（超过 50 小时开问题）。手动运行时选"演练"：随机下载几个包，解开，与数据集里的文件逐字节比对。
 
 ### 2.3 时点查询接口
@@ -509,6 +516,7 @@ flowchart LR
 | U1 五张表的规模 | Binance 1 分钟数据 83 个月（2019-12 到 2026-10）、993,774,961 行、23,227 个输入文件、18.88 GB；Bybit 1 分钟数据 80 个月（2020-03 到 2026-10）、797,362,079 行、673,945 个逐笔成交文件、14.65 GB；资金费率 82 个月（2020-01 起）、2,854,110 行、0.02 GB；标记价格 83 个月、1,004,093,017 行、2.29 GB；持仓量 74 个月（2020-09 起）、165,776,005 行、614,342 个文件、3.12 GB。数据集共 39.05 GB，额度 100 GB | 2026-11-15，[汇总第 43673599669 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43673599669)；Bybit 由[第 43524076556](https://github.com/zhihong1357/finance-research/actions/runs/43524076556)、[43547597119](https://github.com/zhihong1357/finance-research/actions/runs/43547597119)、[43606187472 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43606187472)加工；存储见[监控第 43673307225 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43673307225) |
 | U1 重建核对（2.5.7） | 用现在的代码按归档清单在运行器上重新加工、比对内容指纹：资金费率 82 个月、Binance 1 分钟数据 83 个月、标记价格 83 个月、持仓量 74 个月，全部一致，没有"输入变了"或"结果变了"的月份。Bybit 80 个月中已核对 34 个，全部一致，其余还在跑 | 2026-11-15，[持仓量第 43673293729 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43673293729)、[Bybit 第 43673299665 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43673299665) |
 | CFTC 持仓报告的接口和公布规则 | 公开数据接口的金融期货持仓报告（仅期货）：2006-06-13 到 2026-11-03 共 1,065 期、47,322 行，没有空格子；保留的 40 个字段约 1,300 万字节 CSV（压缩后约 3.9 MB），解析成 176 万行用时约 2 秒。报告日有 14 期不是周二（假日挪到周一等）。"报告日之后第 3 个工作日"的规则与官方 2026 年日程 52 次全部一致，也与 2024-11-26 期（感恩节顺延到周一）和 2025-12-23 期（12 月 24 到 26 日关闭，顺延到 31 日）一致。用"下一个周二"预测下一期，历史上只有 2007 年福特总统国丧那一期比预测晚 | 2026-11-15 实测（云端沙盒）；[官方公布日程](https://cftc.gov/MarketReports/CommitmentsofTraders/ReleaseSchedule/index.htm) |
+| Deribit DVOL 接口能取多早 | 按一天的窗口二分查找最早还有数据的日子：1 秒 K 线约 32 天，1 分钟约 187 天，1 小时和 12 小时至少 2,000 天（日线从 2021-03-24 起）。全部取一遍：BTC、ETH 的 1 分钟各约 26.7 万根，1 小时各 49,494 根，共 636 个请求、约 24 MB | 2026-11-15 实测（云端沙盒） |
 | 异地备份的实测 | 在分支上打开备份后手动运行：第一次传了 6 个"数据源·日"的包（当时只有心跳和刚开始录制的数据源有完整的日子）；演练随机下载 3 个包、22 个文件，与数据集逐字节比对，0 个不同。授权用所有者 Google 账号下自建的应用，范围只有 `drive.file` | 2026-11-15，[备份第 43684712777 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43684712777)、[演练第 43684787809 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43684787809) |
 | 中断通知与恢复 | 演练中，故意失败的数据源超过上限后，下一次监控开出问题（[#16](https://github.com/zhihong1357/finance-research/issues/16)，由 github-actions 机器人开）；恢复后下一次监控留言并关闭。同一次采集里另一个数据源照常入库。用 `GITHUB_TOKEN` 请求启用定时任务的调用成功 | 2026-11-13 实测 |
 | 宏观的历史公布版本 | FRED 接口按 `realtime_start`、`realtime_end` 返回历史版本（需要免费注册的 API 密钥），但它的条款禁止存档，见 7.5。费城联储的实时数据集（RTDSM）提供主要宏观变量的全部历史版本下载 | [FRED 文档](https://fred.stlouisfed.org/docs/api/fred/realtime_period.html)；[费城联储](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists) |

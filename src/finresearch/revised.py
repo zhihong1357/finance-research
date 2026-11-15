@@ -69,7 +69,7 @@ def assemble(s: Spec, store: RawStore, records: list[RawRecord]) -> PitTable:
     adapter = ADAPTERS.get(s.source)
     if adapter is None:
         raise RevisedError(f"{s.source} has no adapter")
-    tables = [adapter.parse(store.read(r), r.fetched_at) for r in records]
+    tables = [adapter.parse_record(store.read(r), r.fetched_at, r.url) for r in records]
     for t in tables:
         if t.name != s.table:
             raise RevisedError(f"{s.source} gave a table {t.name!r}, not {s.table!r}")
