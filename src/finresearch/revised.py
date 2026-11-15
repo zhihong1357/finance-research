@@ -40,12 +40,19 @@ class Spec:
     source: str
     format: int
     part: str
+    conflicts: vintages.Conflicts = vintages.Conflicts.REFUSE
 
 
 def specs(cfg: Mapping[str, Any] | None = None) -> dict[str, Spec]:
     cfg = load_toml("revised") if cfg is None else cfg
     return {
-        name: Spec(name, str(t["source"]), int(t["format"]), str(t["part"]))
+        name: Spec(
+            name,
+            str(t["source"]),
+            int(t["format"]),
+            str(t["part"]),
+            vintages.Conflicts(str(t.get("conflicts", "refuse"))),
+        )
         for name, t in dict(cfg["tables"]).items()
     }
 
@@ -66,7 +73,7 @@ def assemble(s: Spec, store: RawStore, records: list[RawRecord]) -> PitTable:
     for t in tables:
         if t.name != s.table:
             raise RevisedError(f"{s.source} gave a table {t.name!r}, not {s.table!r}")
-    return vintages.compact(vintages.merge(s.table, tables))
+    return vintages.compact(vintages.merge(s.table, tables, s.conflicts))
 
 
 def _inputs(records: list[RawRecord]) -> dict[str, str]:
@@ -89,16 +96,18 @@ def build(s: Spec, remote: Remote, limits: Limits, work: Path, now: datetime) ->
     records = store.records(s.source)
     if not records:
         raise RevisedError(f"the raw layer has nothing for {s.source}")
-    t = assemble(s, store, records)
     latest = builds.latest_card_path(remote, s.table, s.format, s.part, limits)
-    if latest is not None and builds.read_card(remote, latest, limits).fingerprint == str(
-        t.fingerprint
-    ):
+    card = builds.read_card(remote, latest, limits) if latest is not None else None
+    if card is not None and card.inputs == _inputs(records):
+        # Nothing collected since the latest build: the same responses give the same table.
+        return Built(s.table, len(records), card.rows, None, 0)
+    t = assemble(s, store, records)
+    if card is not None and card.fingerprint == str(t.fingerprint):
         return Built(s.table, len(records), t.num_rows, None, 0)
-    card = builds.write_build(t, work, s.format, s.part, ensure_utc(now), _inputs(records))
+    made = builds.write_build(t, work, s.format, s.part, ensure_utc(now), _inputs(records))
     folder = builds.build_dir(s.table, s.format, ensure_utc(now))
-    report = push(work, remote, folder, limits, f"{s.table}: build {card.built}, {card.rows} rows")
-    return Built(s.table, len(records), t.num_rows, card, len(report.added))
+    report = push(work, remote, folder, limits, f"{s.table}: build {made.built}, {made.rows} rows")
+    return Built(s.table, len(records), t.num_rows, made, len(report.added))
 
 
 class Verdict(StrEnum):

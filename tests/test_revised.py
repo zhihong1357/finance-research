@@ -50,6 +50,9 @@ def test_a_build_is_written_once_and_again_only_when_it_changes(tmp_path: Path) 
         "canonical/rates.nyfed/v1/builds/2026/20261113T134700Z/nyfed.json",
         "canonical/rates.nyfed/v1/builds/2026/20261113T134700Z/nyfed.parquet",
     ]
+    # Nothing collected since: the build is skipped without parsing anything.
+    same = revised.build(SPEC, remote, LIMITS, tmp_path / "w0", utc(2026, 11, 13, 14, 47))
+    assert (same.card, same.responses, same.rows, same.pushed) == (None, 1, 4, 0)
     # The next fetch sees the same two days: the latest day again as the latest, so
     # only a later copy of a version already known, which compact drops.
     _collect(remote, raw, utc(2026, 11, 13, 21, 17), [("2026-11-10", 4.12), ("2026-11-12", 4.15)])

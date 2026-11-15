@@ -14,6 +14,7 @@ sources = [
   "deribit.book_summary",
   "hyperliquid.asset_ctxs",
   "nyfed.reference_rates",
+  "philly.rtdsm",
   "heartbeat.canary",
 ]
 

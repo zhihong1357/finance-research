@@ -4,6 +4,9 @@
 [groups.every8h]
 cron = "17 */8 * * *"           # 每 8 小时，在第 17 分钟（避开整点的拥挤）
 
+[groups.weekly]
+cron = "41 6 * * 1"             # 每周一 06:41：更新慢的数据源（费城联储的实时数据集每月更新）
+
 [groups.every4h]
 cron = "23 */4 * * *"           # 每 4 小时：快照类数据源，错过就补不回来
 
@@ -53,6 +56,14 @@ lookback_days = 30              # 平常只取最近 30 天：足够跨过长假
 history_start = "2000-01-01"    # 取全部历史时的起点；EFFR 最早到 2000-07-03，SOFR 到 2018-04-02
 full_history_weekday = 6        # 每周日（UTC，周一是 0）第一次运行取全部历史，顺便核对旧值没有被改
 full_history_before_hour = 8    # "第一次运行"：每 8 小时一次，所以是 8 点之前那次
+
+[sources."philly.rtdsm"]
+group = "weekly"
+max_age_hours = 192             # 一周一次，加一天余量
+added = "2026-11-16T00:00:00Z"
+enabled = true
+# 变量页面 -> 工作簿文件名。有月度版本的用月度版本（版本多，更接近公布时刻），没有的用季度版本
+files = { routput = "routputMvQd.xlsx", p = "pMvQd.xlsx", pcpi = "pcpiMvMd.xlsx", pcpix = "pcpixMvMd.xlsx", pcon = "pconQvQd.xlsx", pconx = "pconxMvQd.xlsx", ruc = "rucQvMd.xlsx", employ = "employMvMd.xlsx", ipt = "iptMvMd.xlsx" }
 
 [monitor]
 issue_marker = "finresearch:outage"   # 监控开的问题里带这个标记，用来认出自己开过的问题

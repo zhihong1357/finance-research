@@ -9,6 +9,7 @@ dependencies = [
     "huggingface-hub>=2.4.0",
     "pyarrow>=26.0.1",
     "pydantic>=2.14.3",
+    "python-calamine>=0.9.1",
     "tzdata>=2026.6",
 ]
 

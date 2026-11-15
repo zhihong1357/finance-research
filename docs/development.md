@@ -135,6 +135,7 @@ uv run finresearch backup drill --seed 1                 # 随机下载几个包
 | pyarrow | 1.5 | 时点表的内存格式和 Parquet 读写（决策 0004 已列入）。另有开发依赖 `pyarrow-stubs` 补充类型标注 |
 | huggingface-hub | 2.1 | 远程存储（[决策 0003](decisions/0003-data-storage.md)）：批量提交、列出、下载。官方客户端，处理大文件的分块上传。它会带进一批间接依赖（httpx2、hf-xet、fsspec 等） |
 | httpx2 | 2.1 | huggingface-hub 的网络层。直接声明是因为代码要按它的异常类型区分"值得重试"的网络错误 |
+| python-calamine | 2.6.4 | 读 Excel 工作簿（`.xlsx` 和 `.xls`）。费城联储的工作簿用 openpyxl 读会报错；它是 Rust 写的读取器，只读不写，没有间接依赖 |
 
 ### 测试的约束
 

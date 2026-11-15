@@ -5,3 +5,10 @@
 source = "nyfed.reference_rates"   # config/collect.toml 里的数据源
 format = 1                         # 表的格式版本：格式变了就升，写到新目录，旧的不覆盖
 part = "nyfed"                     # 文件名
+conflicts = "refuse"               # 两次抓取对同一版本说法不一时报错：纽约联储公布后不改
+
+[tables."macro.rtdsm"]
+source = "philly.rtdsm"
+format = 1
+part = "rtdsm"
+conflicts = "latest"               # 费城联储会更正旧版本里的录入错误：以最新一次抓取为准

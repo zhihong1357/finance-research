@@ -1,0 +1,19 @@
+id = "philly.rtdsm"
+name = "费城联储实时数据集：主要宏观变量的全部历史版本（实际产出、物价、失业率、就业、工业产出）"
+url = "https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists"
+access = "archive"
+redownloadable = true
+event_time = "观测期的开始（季度或月份的第一天，UTC 零点）"
+available_at = "版本月份的下一个月 1 日（季度版本按季度中间那个月算）：说明文件只说版本是当月中旬左右能看到的数据，没给具体日期，所以取月末，绝不提前；比这更新的版本取我们抓到的时刻"
+rate_limit = "每周一次，每次 9 个页面加 9 个工作簿，共约 6 MB"
+terms_url = "https://www.philadelphiafed.org/about-us/privacy-notice"
+terms_checked = true
+data_level = "L1"
+known_issues = [
+  "条款：网站内容可用于信息、教育和研究目的；条款没有提到存储，原始文件只放私有数据集",
+  "版本只精确到月，可用时刻最多晚约两周；需要精确到分钟的公布时刻见 2.6.7",
+  "指数类变量（物价、工时）的基期随版本改变：比较增长率要在同一个版本里算，不要跨版本比水平",
+  "费城联储会更正旧版本里的录入错误；两次抓取对同一版本说法不一时，以最新一次为准（config/revised.toml）",
+  "部分变量只有季度版本（PCE 物价、失业率），间隔三个月",
+  "工作簿的下载链接带着会变的哈希，每次从变量页面重新找",
+]
