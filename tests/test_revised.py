@@ -115,10 +115,25 @@ def test_a_build_that_does_not_match_its_card_is_refused(tmp_path: Path) -> None
         builds.load(remote, local, f"{folder}/nyfed.json", LIMITS)
 
 
-def test_nothing_to_build_and_unknown_tables_are_errors(tmp_path: Path) -> None:
+def test_a_source_not_yet_collected_builds_nothing(tmp_path: Path) -> None:
     remote = DirectoryRemote(tmp_path / "remote")
-    with pytest.raises(revised.RevisedError, match="nothing for"):
-        revised.build(SPEC, remote, LIMITS, tmp_path / "w", utc(2026, 11, 13))
+    made = revised.build(SPEC, remote, LIMITS, tmp_path / "w", utc(2026, 11, 13))
+    assert (made.responses, made.rows, made.card, made.pushed) == (0, 0, None, 0)
+    assert not remote.list("canonical")
+
+
+def test_raw_data_gone_after_a_build_is_an_error(tmp_path: Path) -> None:
+    remote = DirectoryRemote(tmp_path / "remote")
+    _collect(remote, tmp_path / "raw", utc(2026, 11, 13, 13, 5), [("2026-11-12", 4.15)])
+    revised.build(SPEC, remote, LIMITS, tmp_path / "w1", utc(2026, 11, 13, 14))
+    for path in remote.list(f"raw/{SPEC.source}"):
+        (tmp_path / "remote" / path).unlink()
+    with pytest.raises(revised.RevisedError, match="was built"):
+        revised.build(SPEC, remote, LIMITS, tmp_path / "w2", utc(2026, 11, 13, 15))
+
+
+def test_unknown_tables_are_errors(tmp_path: Path) -> None:
+    remote = DirectoryRemote(tmp_path / "remote")
     with pytest.raises(revised.RevisedError, match="no build yet"):
         revised.verify(SPEC, remote, LIMITS, tmp_path / "v")
     with pytest.raises(revised.RevisedError, match="not a table"):

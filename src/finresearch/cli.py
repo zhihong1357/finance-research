@@ -496,7 +496,9 @@ def _revised(args: argparse.Namespace) -> int:
         with tempfile.TemporaryDirectory(prefix="finresearch-revised-") as tmp:
             if args.cmd == "build":
                 made = revised.build(s, remote, limits, Path(tmp), datetime.now(UTC))
-                if made.card is None:
+                if made.responses == 0:
+                    print(f"{s.table}: no response collected yet; nothing to build")
+                elif made.card is None:
                     print(f"{s.table}: {made.responses} response(s), unchanged; nothing pushed")
                 else:
                     print(
