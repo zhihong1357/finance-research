@@ -175,6 +175,13 @@ flowchart TB
 - **值**：`value` 和 `value_scale`，精确的定点整数，和 U1 的表一样。某一版里没有的观测不写行，查询时看到的是它之前的一版。
 - **查询**：接口按 `versions_as_of` 回答，每个观测取查询时刻已经公布的最新一版。`revisions` 列出一个观测的全部版本，供核对用。
 - **压缩**：费城联储的实时数据集每个月把整段历史重新发一遍，新的一版里绝大多数值与上一版相同。`compact` 去掉与前一版值相同的行（1.5 和 1.50 算相同）。查询得到的值不变，只是 `available_at` 变成这个值第一次公布的时刻。
+- **多次抓取**：同一个数据源会被抓很多次，相邻两次的内容大半重叠。`merge` 把同一版本只留一行，入库时刻取最早的一次；两次抓取对同一版本给出不同的值（或者同一个值、小数位数不同），说明数据源改了已经公布的东西，直接报错。
+
+**纽约联储参考利率**（Phase 2.6.3，表 `rates.nyfed`，`src/finresearch/sources/nyfed_rates.py`，数据源 `nyfed.reference_rates`）。SOFR 是以美国国债作抵押的隔夜借款利率，EFFR 是银行之间无抵押隔夜拆借的利率，两者都是美元的基准利率，由纽约联储每个工作日公布前一个工作日的值。每个数字字段是一个序列：`SOFR` 是利率本身，`SOFR.p25` 是当天成交利率的第 25 百分位，`SOFR.volume_bn` 是成交量（十亿美元）；EFFR 另有目标区间的上下限，2016 年 3 月以前的 EFFR 有日内最高、最低和标准差。
+
+- **可用时刻**：响应里后面还有下一个工作日的，取下一个工作日的 14:30（纽约时间），因为利率那天早上公布、当天最晚 14:30 可能修订一次、之后不再改。响应里最新的一天没有下一天可依，取抓取时刻；如果它当天被修订，之后的抓取会看到新值，记成新的一版。节假日自动处理：11 月 11 日休市，10 日的利率 12 日才公布，表里就是 12 日 14:30。
+- **录制**：随"采集"工作流每 8 小时一次，平常只取最近 30 天；每周日第一次运行取全部历史（EFFR 从 2000-07-03 起，SOFR 从 2018-04-02 起），顺便核对旧值没有被改过。全部历史两个响应压缩后约 75 KB。
+- **规范层**：由全部抓取合并、压缩而成，见 2.6.3 的第二部分。
 
 ### 2.3 时点查询接口
 
@@ -483,6 +490,7 @@ flowchart LR
 | 中断通知与恢复 | 演练中，故意失败的数据源超过上限后，下一次监控开出问题（[#16](https://github.com/zhihong1357/finance-research/issues/16)，由 github-actions 机器人开）；恢复后下一次监控留言并关闭。同一次采集里另一个数据源照常入库。用 `GITHUB_TOKEN` 请求启用定时任务的调用成功 | 2026-11-13 实测 |
 | 宏观的历史公布版本 | FRED 接口按 `realtime_start`、`realtime_end` 返回历史版本（需要免费注册的 API 密钥），但它的条款禁止存档，见 7.5。费城联储的实时数据集（RTDSM）提供主要宏观变量的全部历史版本下载 | [FRED 文档](https://fred.stlouisfed.org/docs/api/fred/realtime_period.html)；[费城联储](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists) |
 | 2.6 各数据源的公布时间 | SOFR：每个工作日约 8:00（美东）公布前一工作日的利率；当天发现数据有误时约 14:30 修订一次，之后不再修改已公布的值。费城联储实时数据集：每月月底更新，每个版本的全部历史在列头的版本日期公开。CFTC 持仓报告：周二的持仓，通常周五 15:30（美东）公布，已公布的历史不回改；2025 年 10 月 1 日到 11 月 12 日政府停摆期间暂停，9 月 30 日那期原定 10 月 3 日，实际 11 月 19 日才公布 | [纽约联储 SOFR](https://www.newyorkfed.org/markets/reference-rates/sofr)、[修订规则](https://www.newyorkfed.org/markets/reference-rates/additional-information-about-reference-rates)；[费城联储数据页](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists)；[CFTC 持仓报告说明](https://www.cftc.gov/MarketReports/CommitmentsOfTraders/index.htm)、[停摆后的补发日程](https://mondovisione.com/media-and-resources/news/cftc-to-resume-publishing-cot-reports-wednesday-the-agency-also-announced-a-c-20251118/)；2026-11-15 读取 |
+| 纽约联储接口的历史 | 2026-11-15 取全部历史：SOFR 2,152 天（2018-04-02 起），EFFR 6,625 天（2000-07-03 起），没有重复日期。数字一律两位小数。EFFR 2016 年 3 月起改用新方法，字段随之改变。EFFR 有 35 天标为修订过（34 天在 2016 年以前）；SOFR 没有。两天的 SOFR 按应急规则算出，分位数写作 `NA`。EFFR 有一天的日期是星期日（2003-07-20） | 2026-11-15 实测（云端沙盒，原始数据不进仓库） |
 
 ### 7.4 尚未核实
 

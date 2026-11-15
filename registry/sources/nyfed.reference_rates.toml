@@ -1,0 +1,19 @@
+id = "nyfed.reference_rates"
+name = "纽约联储参考利率：SOFR 与联邦基金有效利率（EFFR），含分位数和成交量"
+url = "https://markets.newyorkfed.org/api/rates"
+access = "api"
+redownloadable = true
+event_time = "利率所属的工作日（effectiveDate），当天 UTC 零点"
+available_at = "下一个工作日 14:30（纽约时间）：利率在那天早上公布，当天最晚 14:30 可能修订一次，之后不再改。响应里最新的一天没有下一个工作日可依，取抓取时刻；之后的抓取如果看到修订后的值，记成新的版本"
+rate_limit = "公开接口，无需密钥；每次运行 2 个请求"
+terms_url = "https://www.newyorkfed.org/privacy/termsofuse"
+terms_checked = true
+data_level = "L1"
+known_issues = [
+  "条款：可以存储、复制、分发；使用或分发这些利率时要附上纽约联储规定的声明",
+  "EFFR 在 2016 年 3 月以前用另一种方法计算，字段也不同（有日内最高、最低和标准差，没有分位数和成交量）",
+  "EFFR 有 35 天标为修订过，其中 34 天在 2016 年以前；当时的修订规则接口没有说明，这些天 14:30 之前定稿的说法没有文件依据",
+  "EFFR 有一天的日期是星期日（2003-07-20），原样保留",
+  "按应急规则算出的几天（例如 SOFR 的 2019-05-31、2021-08-05）没有分位数，接口写作 NA，这些值不存",
+  "历史值可以重新下载，但我们是在什么时刻看到它的，只有录下来才知道；修订前的值接口不再提供",
+]

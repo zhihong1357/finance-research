@@ -129,6 +129,28 @@ def concat(name: str, tables: Sequence[PitTable]) -> PitTable:
     return PitTable(name, KEYS, table)
 
 
+def merge(name: str, tables: Sequence[PitTable]) -> PitTable:
+    """Tables from repeated fetches of one source as one table.
+
+    The same version seen in several fetches is kept once, with the earliest
+    ``ingested_at``. Two fetches that give one version (series, period and
+    ``available_at``) different values, or the same value with a different
+    number of decimals, are refused: that is a source changing what it published.
+    """
+    for t in tables:
+        if t.name != name:
+            raise VintageError(f"cannot put {t.name!r} into {name!r}")
+    table = pa.concat_tables([t.table for t in tables]) if tables else _empty()
+    ids = [SERIES, FREQUENCY, EVENT_TIME, AVAILABLE_AT]
+    seen = table.group_by([*ids, VALUE, VALUE_SCALE]).aggregate([(INGESTED_AT, "min")])
+    seen = seen.rename_columns([*ids, VALUE, VALUE_SCALE, INGESTED_AT])
+    if seen.num_rows:
+        counts = seen.group_by(ids).aggregate([([], "count_all")])
+        if pc.max(counts.column("count_all")).as_py() > 1:
+            raise VintageError(f"{name}: fetches disagree on the value of a published version")
+    return concat(name, [PitTable(name, KEYS, seen.select(_empty().column_names))])
+
+
 def compact(t: PitTable) -> PitTable:
     """``t`` without the versions whose value equals the version before them."""
     order = (SERIES, EVENT_TIME, AVAILABLE_AT)
