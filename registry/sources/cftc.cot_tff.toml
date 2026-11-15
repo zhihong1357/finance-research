@@ -1,0 +1,19 @@
+id = "cftc.cot_tff"
+name = "CFTC 持仓报告：金融期货（交易商、资产管理人、杠杆基金等的持仓），仅期货"
+url = "https://publicreporting.cftc.gov/resource/gpe5-46if.csv"
+access = "api"
+redownloadable = true
+event_time = "报告日（通常是周二）当天 UTC 零点"
+available_at = "报告日之后第 3 个工作日 15:30（纽约时间），工作日不含周末、联邦假日和 config/cftc.toml 列出的临时关闭日；政府停摆期间的报告取官方补发完毕的日子；比这更早抓到的，取抓到的时刻"
+rate_limit = "公开接口，无需密钥；平常每次 1 个请求，取全部历史时每 5 万行一页"
+terms_url = "https://www.cftc.gov/webpolicy/index.htm"
+terms_checked = true
+data_level = "L1"
+known_issues = [
+  "条款：公有领域，可以自由分发和复制；使用时注明 CFTC 是来源",
+  "cftc.gov 上的历年压缩文件有机器人检查，不去绕过；改用 CFTC 的公开数据接口",
+  "公布时刻的规则与官方 2026 年日程 52 次逐个一致；更早的年份没有官方日程可对，华盛顿因天气等原因的临时关闭没有全部列入，这些周可能早一两天",
+  "政府停摆的三次（2013、2018-19、2025）取补发完毕的日子，最早补发的几期实际更早公布，可用时刻偏晚",
+  "只存水平值（持仓、人数、集中度）；周变化和占持仓量的百分比可以由水平值算出，不存",
+  "报告晚于规则还没出来时，采集直接报错：需要把新的延期写进 config/cftc.toml",
+]

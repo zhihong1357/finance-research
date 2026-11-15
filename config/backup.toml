@@ -15,6 +15,7 @@ sources = [
   "hyperliquid.asset_ctxs",
   "nyfed.reference_rates",
   "philly.rtdsm",
+  "cftc.cot_tff",
   "heartbeat.canary",
 ]
 
