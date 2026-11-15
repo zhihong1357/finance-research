@@ -71,6 +71,28 @@ def newest_record(remote: Remote, source: str, now: datetime) -> datetime | None
     return None
 
 
+def newest_backup(remote: Remote, now: datetime) -> datetime | None:
+    """When the newest backup run logged itself (``backup/log/YYYY/MM/DD/run-HHMMSSZ.json.gz``)."""
+    for offset in (0, -1):
+        month = month_start(ensure_utc(now).date(), offset)
+        times = [
+            t for p in remote.list(f"backup/log/{month:%Y/%m}") if (t := record_time(p)) is not None
+        ]
+        if times:
+            return max(times)
+    return None
+
+
+def check_backup(backup: Mapping[str, Any], remote: Remote, now: datetime) -> list[SourceStatus]:
+    """The offsite backup (decision 0014) is stale when no run logged itself within the limit."""
+    max_age = timedelta(hours=float(backup["max_age_hours"]))
+    if not backup.get("enabled", False):
+        return [SourceStatus("backup", False, None, max_age, stale=False)]
+    newest = newest_backup(remote, now)
+    since = newest or parse_utc(str(backup["added"]))
+    return [SourceStatus("backup", True, newest, max_age, stale=now - since > max_age)]
+
+
 def newest_increment(remote: Remote, dataset: str) -> datetime | None:
     """When the newest manifest increment of an archive dataset was listed, if any."""
     times = [t for p in remote.list(f"{PREFIX}/{dataset}") if (t := increment_time(p)) is not None]
@@ -253,10 +275,13 @@ def run(
     remote: Remote,
     repo: Repo,
     now: datetime,
+    backup: Mapping[str, Any] | None = None,
 ) -> list[str]:
     """One monitor pass. Returns log lines (sizes, times and states only, never data)."""
     mon = cfg["monitor"]
     statuses = check_sources(cfg, remote, now) + check_archives(archives, remote, now)
+    if backup is not None:
+        statuses += check_backup(backup, remote, now)
     lines = [
         f"{s.source}: {'disabled' if not s.enabled else ('STALE' if s.stale else 'ok')}"
         f" (newest {_fmt(s.newest)})"

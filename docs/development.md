@@ -41,6 +41,22 @@
 
 令牌只放在 GitHub Secrets 里，不要贴进对话、提交或任何文件。令牌泄露时，在 Hugging Face 的 Access Tokens 页面删除它，再按第 3、4 步换一把新的。数据集名带着你的用户名，所以放在 Variables 里，而不是写进公开仓库。
 
+### 配置异地备份（一次性，Phase 2.9）
+
+找不回的原始数据在你的 Google Drive 再存一份（[决策 0014](decisions/0014-offsite-backup.md)）。GitHub 上的任务需要一个只能碰它自己建的文件的授权。全程在网页上完成，大约十五分钟：
+
+1. 打开 [Google Cloud 控制台](https://console.cloud.google.com)，新建一个项目（例如 `finresearch-backup`）。
+2. "API 和服务" → "库"，搜 **Google Drive API**，启用。
+3. "Google Auth Platform"（或"OAuth 同意屏幕"）→ 用户类型选**外部**，应用名随便填，邮箱填你自己的。
+4. "数据访问"里添加范围 `https://www.googleapis.com/auth/drive.file`：只能碰它自己建的文件，看不到你 Drive 里别的东西。
+5. "目标对象"里点**发布应用**，状态变成"正式版"。不发布的话，授权 7 天后失效。
+6. "客户端"里新建 OAuth 客户端，类型选 **Web 应用**，"已获授权的重定向 URI"加 `https://developers.google.com/oauthplayground`。记下客户端 ID 和客户端密钥。
+7. 打开 [OAuth Playground](https://developers.google.com/oauthplayground)，右上齿轮里勾选 "Use your own OAuth credentials"，填入上一步的两个值；左边输入第 4 步的范围，点 Authorize APIs，登录你的账号（提示"未经验证"时点"高级"→"继续"）；再点 Exchange authorization code for tokens，复制 Refresh token。
+8. 本仓库 Settings → Secrets and variables → Actions → Secrets，新建 `GDRIVE_CLIENT_ID`、`GDRIVE_CLIENT_SECRET`、`GDRIVE_REFRESH_TOKEN` 三个。
+9. 告诉 AI 已经配好。AI 先手动运行一次"异地备份"，再运行一次"演练"，都通过后才在 `config/backup.toml` 里打开每天的定时备份。
+
+这三个值只放在 GitHub Secrets 里，不要贴进对话、提交或任何文件。泄露时，在 Google Cloud 控制台的"客户端"里删除这个客户端，再按第 6 到 8 步换新的。
+
 ### 收到数据中断通知时
 
 监控每 4 小时检查一次每个数据源。某个数据源超过它的上限时间没有新数据，监控会在仓库里开一个标题为"数据中断：数据源名"的问题，GitHub 会给你发邮件。
@@ -88,6 +104,8 @@ uv run finresearch u1 verify --table u1.funding --exchange binance --month 2026-
 uv run finresearch revised plan                          # 列出修订版本表（config/revised.toml）
 uv run finresearch revised build --table rates.nyfed     # 由全部原始响应加工一份完整的表，内容变了才推送
 uv run finresearch revised verify --table rates.nyfed    # 用最新一份卡片上的原始响应重新加工，不推送，比对内容指纹
+uv run finresearch backup run                            # 把还没备份的、已经结束的日子打包传到 Google Drive，需要 GDRIVE_* 三个值
+uv run finresearch backup drill --seed 1                 # 随机下载几个包，与数据集逐字节比对
 ```
 
 ### 记一次试验

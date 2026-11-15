@@ -1,0 +1,52 @@
+# 异地备份（Phase 2.9，决策 0014）：每天把前一天以前、还没备份的原始文件夹打包传到
+# Google Drive。手动运行时可以选"演练"：随机下载几个包，解开，与数据集逐字节比对。
+# config/backup.toml 里 enabled = false 时什么都不做。日志只写个数（决策 0008）。
+name: 异地备份
+
+on:
+  schedule:
+    - cron: "37 3 * * *"     # 每天 03:37 UTC
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: run（备份）或 drill（演练）
+        required: true
+        default: run
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: 备份
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - name: 备份或演练
+        env:
+          MODE: ${{ inputs.mode || 'run' }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET: ${{ vars.HF_DATASET }}
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+        run: |
+          case "$MODE" in
+            run|drill) uv run finresearch backup "$MODE" ;;
+            *) echo "unknown mode: $MODE"; exit 1 ;;
+          esac
