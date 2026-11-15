@@ -1,0 +1,7 @@
+# U1 的数据画像（Phase 2.8，src/finresearch/profile.py）。只用探索集（决策 0015），结果存私有数据集（决策 0008）。
+
+exchanges = ["binance", "bybit"]
+liquid_usd = [1e6, 1e7, 1e8]          # 每月数出日均成交额（中位数）不低于这些值的合约：100 万、1000 万、1 亿美元
+quantiles = [0.1, 0.25, 0.5, 0.75, 0.9, 0.99]   # 合约日成交额中位数的分布
+window_days = 90                      # 有效广度：每季度末，用最近 90 天的日收益
+breadth_min_turnover_usd = 1e7        # 只算这 90 天里日成交额中位数不低于 1000 万美元、且一天不缺的合约

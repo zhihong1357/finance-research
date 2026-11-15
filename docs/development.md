@@ -106,6 +106,7 @@ uv run finresearch revised build --table rates.nyfed     # 由全部原始响应
 uv run finresearch revised verify --table rates.nyfed    # 用最新一份卡片上的原始响应重新加工，不推送，比对内容指纹
 uv run finresearch quality plan                          # 列出要做质量检查的 U1 表
 uv run finresearch quality run --table u1.bars_1m --month 2026-10   # 检查一张表（可只查一个月），报告写进私有数据集
+uv run finresearch profile run --exchange binance        # U1 的数据画像，只读探索集，结果写进私有数据集
 uv run finresearch schedules catchup                     # 补跑 GitHub 漏掉的定时任务（需要 GITHUB_TOKEN）
 uv run finresearch accept plan                           # 列出 2.6 验收要核对的表和数据源（config/acceptance.toml）
 uv run finresearch accept run --target macro.rtdsm       # 在真实数据上核对三个时间，并抽查修订前后的查询结果
