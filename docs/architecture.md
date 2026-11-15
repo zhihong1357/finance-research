@@ -493,13 +493,14 @@ flowchart LR
 | 宏观的历史公布版本 | FRED 接口按 `realtime_start`、`realtime_end` 返回历史版本（需要免费注册的 API 密钥），但它的条款禁止存档，见 7.5。费城联储的实时数据集（RTDSM）提供主要宏观变量的全部历史版本下载 | [FRED 文档](https://fred.stlouisfed.org/docs/api/fred/realtime_period.html)；[费城联储](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists) |
 | 2.6 各数据源的公布时间 | SOFR：每个工作日约 8:00（美东）公布前一工作日的利率；当天发现数据有误时约 14:30 修订一次，之后不再修改已公布的值。费城联储实时数据集：每月月底更新，每个版本的全部历史在列头的版本日期公开。CFTC 持仓报告：周二的持仓，通常周五 15:30（美东）公布，已公布的历史不回改；2025 年 10 月 1 日到 11 月 12 日政府停摆期间暂停，9 月 30 日那期原定 10 月 3 日，实际 11 月 19 日才公布 | [纽约联储 SOFR](https://www.newyorkfed.org/markets/reference-rates/sofr)、[修订规则](https://www.newyorkfed.org/markets/reference-rates/additional-information-about-reference-rates)；[费城联储数据页](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists)；[CFTC 持仓报告说明](https://www.cftc.gov/MarketReports/CommitmentsOfTraders/index.htm)、[停摆后的补发日程](https://mondovisione.com/media-and-resources/news/cftc-to-resume-publishing-cot-reports-wednesday-the-agency-also-announced-a-c-20251118/)；2026-11-15 读取 |
 | 纽约联储接口的历史 | 2026-11-15 取全部历史：SOFR 2,152 天（2018-04-02 起），EFFR 6,625 天（2000-07-03 起），没有重复日期。数字一律两位小数。EFFR 2016 年 3 月起改用新方法，字段随之改变。EFFR 有 35 天标为修订过（34 天在 2016 年以前）；SOFR 没有。两天的 SOFR 按应急规则算出，分位数写作 `NA`。EFFR 有一天的日期是星期日（2003-07-20） | 2026-11-15 实测（云端沙盒，原始数据不进仓库） |
+| Bybit 的资金费率、持仓量、标记价格 | 公开归档里没有：顶层只有 `trading`、`spot`、`premium_index`、`spot_index`、`kline_for_metatrader4` 五个目录，`premium_index` 只有 10 个币本位合约，到 2020 年为止。接口（`api.bybit.com`）从云端沙盒访问返回 403。所以 U1 这三张表只有 Binance；跨交易所比较资金费率，用 2.3 录下的 Hyperliquid 和 Deribit | 2026-11-15 实测 |
+| 费城联储实时数据集的版本日期 | 版本只精确到月：说明文件写明季度版本反映"每季中间那个月（2、5、8、11 月）的月中左右"公众能看到的数据，月度版本同理，列名是 `ROUTPUT65Q4`、`ROUTPUT65M11` 这样的年份加季或月。没有具体到哪一天。就业、失业率等劳动力数据另有劳工统计局提供的历次公布日期文件。Excel 文件用 openpyxl 读会报错（文件元数据的格式问题），要换一个读法 | [NIPA 变量的说明](https://www.philadelphiafed.org/-/media/FRBP/Assets/Surveys-And-Data/real-time-data/data-files/documentation/gen_doc_NIPA.pdf)，2026-11-15 读取和实测 |
 
 ### 7.4 尚未核实
 
 原列的五项中，四项已核实（见 7.3 和 7.5）。剩下的在 Phase 2 对应的步骤里查清：
 
 - 用接口启用定时工作流能否重置 60 天的计时。GitHub 文档没有说明，一个步骤之内也无法实测（要等 60 天）。对策是不依赖它：监控在 45 天时开问题提醒所有者，合并任意拉取请求即可（2.2）。
-- 费城联储实时数据集里"版本日期"的确切含义：数据页说每个版本的全部历史在列头日期公开，但版本日期是快照日还是机构的公布日，要在 2.6.4 读它的说明文件确认。
 - CFTC 持仓报告每一期的实际公布日期。平常是周二的数据、周五公布，但假日和政府停摆会推迟，所以不能按规则推算，要找到历年的公布日程（2.6.5）。
 - Deribit 波动率指数（DVOL）的历史能取到多早、多细，一次请求最多返回多少根（2.6.6）。
 - Bybit 公开归档的专门条款。只找到 Bybit 接口条款，其中禁止把接口用于商业利用（2.4）。
