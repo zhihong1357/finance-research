@@ -40,3 +40,9 @@ jobs:
           HF_HUB_DISABLE_PROGRESS_BARS: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: uv run finresearch monitor
+
+      - name: 补跑错过的定时任务
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run finresearch schedules catchup

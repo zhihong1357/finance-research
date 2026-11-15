@@ -1,0 +1,17 @@
+# 补跑 GitHub 没有按时启动的定时任务（src/finresearch/schedules.py）。每次采集开始时和每次监控之后检查一遍：
+# 每个工作流的每个 cron，最近一次该跑的时刻（至少 grace_minutes 之前）之后如果一次运行都没有，就手动启动一次。
+
+grace_minutes = 45        # GitHub 的定时任务常晚几十分钟才启动；晚于这么久还没有才算错过
+lookback_hours = 192      # 只补最近 8 天内该跑的（每周一次的也覆盖到）
+ref = "main"              # 补跑用默认分支上的工作流
+
+[workflows."collect.yml"]
+by_group = true           # 每个定时组一个 cron（config/collect.toml）；运行的标题里写着组名或 cron
+
+[workflows."revised.yml"]
+inputs = { mode = "build" }
+
+[workflows."backup.yml"]
+inputs = { mode = "run" }
+
+[workflows."archive.yml"]
