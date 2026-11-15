@@ -43,6 +43,17 @@ max_age_hours = 9
 added = "2026-11-15T00:00:00Z"
 enabled = true
 
+[sources."nyfed.reference_rates"]
+group = "every8h"
+max_age_hours = 17
+added = "2026-11-16T00:00:00Z"
+enabled = true
+rates = { SOFR = "secured/sofr", EFFR = "unsecured/effr" }   # 利率名 -> 接口路径
+lookback_days = 30              # 平常只取最近 30 天：足够跨过长假，每次约 10 KB
+history_start = "2000-01-01"    # 取全部历史时的起点；EFFR 最早到 2000-07-03，SOFR 到 2018-04-02
+full_history_weekday = 6        # 每周日（UTC，周一是 0）第一次运行取全部历史，顺便核对旧值没有被改
+full_history_before_hour = 8    # "第一次运行"：每 8 小时一次，所以是 8 点之前那次
+
 [monitor]
 issue_marker = "finresearch:outage"   # 监控开的问题里带这个标记，用来认出自己开过的问题
 inactivity_warn_days = 45             # 公开仓库 60 天无活动会停用定时任务；45 天时提醒所有者
