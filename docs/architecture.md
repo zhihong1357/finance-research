@@ -193,6 +193,13 @@ flowchart TB
 - **更正**：费城联储会更正旧版本里的录入错误，所以两次抓取对同一版本说法不一时，以最新一次为准（`config/revised.toml` 的 `conflicts = "latest"`）；纽约联储则相反，说法不一就报错。
 - **录制**：每周一一次。工作簿的下载链接带着会变的哈希，每次从变量页面重新找。
 
+**CFTC 持仓报告**（Phase 2.6.5，表 `positions.cftc`，`src/finresearch/sources/cftc_cot.py`、`core/us_calendar.py`，配置 `config/cftc.toml`，数据源 `cftc.cot_tff`）。金融期货持仓报告（仅期货）：每周按周二的持仓，列出每个市场的持仓量，以及交易商、资产管理人、杠杆基金、其他大户和散户的多空持仓、人数和集中度。覆盖利率、外汇、股指，以及 CME 等交易所的比特币和以太坊期货，从 2006-06-13 起。序列名是"合约代码.字段"，例如 `133741.lev_money_positions_short`（CME 比特币期货的杠杆基金空头）。只存水平值，周变化和百分比可以算出来。
+
+- **来源**：CFTC 的公开数据接口（`publicreporting.cftc.gov`，CSV）。cftc.gov 上的历年压缩文件有机器人检查，不去绕过。
+- **可用时刻**（所有者 2026-11-15 选定）：报告日之后第 3 个工作日的 15:30（纽约时间）。工作日不含周末、联邦假日和配置里列出的临时关闭日（总统令、就职日、飓风）。这条规则与官方 2026 年公布日程的 52 次逐个一致。三次政府停摆期间的报告，取官方公告里补发完毕的日子。抓到的时刻比规则早，就用抓到的时刻。
+- **晚了就报错**：每次采集都检查下一期该出没出。过了规则的时刻一天还没有，采集失败，提醒把新的延期写进配置，而不是悄悄标错日期。
+- **录制**：每周一、二、五 20:47 UTC（周五公布之后；周一、二接假日顺延的）。平常取最近 60 天；加入后一周内和每季度第一个月的前几天取全部历史，核对旧报告没有被改（CFTC 说明已公布的不回改，所以说法不一就报错）。
+
 **异地备份**（Phase 2.9，[决策 0014](decisions/0014-offsite-backup.md)，`src/finresearch/backup.py`、`data/gdrive.py`，配置 `config/backup.toml`，工作流"异地备份"）。丢了就找不回的原始数据（快照类数据源，和修订版本表用到的数据源）每天在 Google Drive 再存一份。每个数据源的每一天打成一个包 `<数据源>__<年-月-日>.tar`：原始文件原样放进去，再加一份每个文件的 SHA-256 清单；文件名排序、时间和属主固定，同一天总是同样的字节。当天还没结束，不打包。已经传过的不再传；第一次运行补历史时，一次最多传 `max_days_per_run` 个包，分几次做完。上传后核对 Drive 报告的 MD5。授权只用 `drive.file` 范围，应用只看得到它自己建的文件。每次运行在数据集的 `backup/log/` 下留一条记录，监控据此判断备份是否中断（超过 50 小时开问题）。手动运行时选"演练"：随机下载几个包，解开，与数据集里的文件逐字节比对。
 
 ### 2.3 时点查询接口
@@ -501,6 +508,7 @@ flowchart LR
 | 快照数据源的大小 | Deribit 每次 6 个请求共约 3.1 MB（USDC 期权约 2 MB、3,200 个合约；BTC 期权约 980 个）；Hyperliquid 每次约 72 KB、235 个永续。从 GitHub Actions 访问 Deribit、OKX、Hyperliquid 都可行（旧仓库的录制） | 2026-11-14 实测 |
 | U1 五张表的规模 | Binance 1 分钟数据 83 个月（2019-12 到 2026-10）、993,774,961 行、23,227 个输入文件、18.88 GB；Bybit 1 分钟数据 80 个月（2020-03 到 2026-10）、797,362,079 行、673,945 个逐笔成交文件、14.65 GB；资金费率 82 个月（2020-01 起）、2,854,110 行、0.02 GB；标记价格 83 个月、1,004,093,017 行、2.29 GB；持仓量 74 个月（2020-09 起）、165,776,005 行、614,342 个文件、3.12 GB。数据集共 39.05 GB，额度 100 GB | 2026-11-15，[汇总第 43673599669 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43673599669)；Bybit 由[第 43524076556](https://github.com/zhihong1357/finance-research/actions/runs/43524076556)、[43547597119](https://github.com/zhihong1357/finance-research/actions/runs/43547597119)、[43606187472 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43606187472)加工；存储见[监控第 43673307225 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43673307225) |
 | U1 重建核对（2.5.7） | 用现在的代码按归档清单在运行器上重新加工、比对内容指纹：资金费率 82 个月、Binance 1 分钟数据 83 个月、标记价格 83 个月、持仓量 74 个月，全部一致，没有"输入变了"或"结果变了"的月份。Bybit 80 个月中已核对 34 个，全部一致，其余还在跑 | 2026-11-15，[持仓量第 43673293729 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43673293729)、[Bybit 第 43673299665 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43673299665) |
+| CFTC 持仓报告的接口和公布规则 | 公开数据接口的金融期货持仓报告（仅期货）：2006-06-13 到 2026-11-03 共 1,065 期、47,322 行，没有空格子；保留的 40 个字段约 1,300 万字节 CSV（压缩后约 3.9 MB），解析成 176 万行用时约 2 秒。报告日有 14 期不是周二（假日挪到周一等）。"报告日之后第 3 个工作日"的规则与官方 2026 年日程 52 次全部一致，也与 2024-11-26 期（感恩节顺延到周一）和 2025-12-23 期（12 月 24 到 26 日关闭，顺延到 31 日）一致。用"下一个周二"预测下一期，历史上只有 2007 年福特总统国丧那一期比预测晚 | 2026-11-15 实测（云端沙盒）；[官方公布日程](https://cftc.gov/MarketReports/CommitmentsofTraders/ReleaseSchedule/index.htm) |
 | 异地备份的实测 | 在分支上打开备份后手动运行：第一次传了 6 个"数据源·日"的包（当时只有心跳和刚开始录制的数据源有完整的日子）；演练随机下载 3 个包、22 个文件，与数据集逐字节比对，0 个不同。授权用所有者 Google 账号下自建的应用，范围只有 `drive.file` | 2026-11-15，[备份第 43684712777 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43684712777)、[演练第 43684787809 次运行](https://github.com/zhihong1357/finance-research/actions/runs/43684787809) |
 | 中断通知与恢复 | 演练中，故意失败的数据源超过上限后，下一次监控开出问题（[#16](https://github.com/zhihong1357/finance-research/issues/16)，由 github-actions 机器人开）；恢复后下一次监控留言并关闭。同一次采集里另一个数据源照常入库。用 `GITHUB_TOKEN` 请求启用定时任务的调用成功 | 2026-11-13 实测 |
 | 宏观的历史公布版本 | FRED 接口按 `realtime_start`、`realtime_end` 返回历史版本（需要免费注册的 API 密钥），但它的条款禁止存档，见 7.5。费城联储的实时数据集（RTDSM）提供主要宏观变量的全部历史版本下载 | [FRED 文档](https://fred.stlouisfed.org/docs/api/fred/realtime_period.html)；[费城联储](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists) |

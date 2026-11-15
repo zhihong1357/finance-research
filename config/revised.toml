@@ -12,3 +12,9 @@ source = "philly.rtdsm"
 format = 1
 part = "rtdsm"
 conflicts = "latest"               # 费城联储会更正旧版本里的录入错误：以最新一次抓取为准
+
+[tables."positions.cftc"]
+source = "cftc.cot_tff"
+format = 1
+part = "tff"
+conflicts = "refuse"               # CFTC 说明已公布的历史不回改：说法不一就报错

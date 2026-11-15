@@ -8,6 +8,7 @@ on:
     - cron: "17 */8 * * *"   # every8h
     - cron: "23 */4 * * *"   # every4h
     - cron: "41 6 * * 1"     # weekly
+    - cron: "47 20 * * 1,2,5"  # cot
   workflow_dispatch:
     inputs:
       group:
