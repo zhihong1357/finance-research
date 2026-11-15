@@ -16,6 +16,7 @@ from finresearch.core.provenance import RunManifest
 from finresearch.registry.ledger import ChainError, read_chain
 from finresearch.registry.models import (
     TRIAL_ID,
+    Boundaries,
     DecisionKind,
     HypothesisCard,
     OwnerDecision,
@@ -35,8 +36,9 @@ SOURCES = Path("registry/sources")
 TRIALS = Path("registry/trials.jsonl")
 OWNER_DECISIONS = Path("registry/owner_decisions.jsonl")
 REFUSALS = Path("registry/refusals.jsonl")
+BOUNDARIES = Path("registry/boundaries.jsonl")
 REPORTS = Path("reports")
-APPEND_ONLY = (TRIALS, OWNER_DECISIONS, REFUSALS)
+APPEND_ONLY = (TRIALS, OWNER_DECISIONS, REFUSALS, BOUNDARIES)
 
 
 @dataclass
@@ -54,6 +56,7 @@ class Registry:
     trials: list[TrialRecord] = field(default_factory=lambda: list[TrialRecord]())
     decisions: list[OwnerDecision] = field(default_factory=lambda: list[OwnerDecision]())
     refusals: list[Refusal] = field(default_factory=lambda: list[Refusal]())
+    boundaries: list[Boundaries] = field(default_factory=lambda: list[Boundaries]())
 
 
 def _errors(where: Path, exc: ValidationError) -> list[str]:
@@ -112,6 +115,7 @@ def load(root: Path) -> tuple[Registry, list[str]]:
     reg.trials = _load_chain(root, TRIALS, TrialRecord, problems)
     reg.decisions = _load_chain(root, OWNER_DECISIONS, OwnerDecision, problems)
     reg.refusals = _load_chain(root, REFUSALS, Refusal, problems)
+    reg.boundaries = _load_chain(root, BOUNDARIES, Boundaries, problems)
     return reg, problems
 
 
@@ -264,6 +268,35 @@ def _check_refusals(reg: Registry) -> list[str]:
     ]
 
 
+def _check_boundaries(root: Path, reg: Registry) -> list[str]:
+    """One record per universe; every plan for that universe stays inside its segments."""
+    problems: list[str] = []
+    by_universe: dict[str, Boundaries] = {}
+    for n, b in enumerate(reg.boundaries, start=1):
+        if b.universe in by_universe:
+            problems.append(
+                f"{BOUNDARIES}:{n}: {b.universe} already has its segments; they never move"
+            )
+            continue
+        by_universe[b.universe] = b
+        if not any((root / "docs" / "decisions").glob(f"{b.decision}-*.md")):
+            problems.append(f"{BOUNDARIES}:{n}: decision {b.decision} not found in docs/decisions/")
+    for c in reg.hypotheses.values():
+        b = by_universe.get(c.card.scope.universe)
+        plan = c.card.plan
+        if b is None:
+            continue
+        for name in ("exploration", "confirmation", "vault"):
+            r = getattr(plan, name)
+            seg = b.segment(name)
+            if r is not None and not (seg.start <= r.start and r.end <= seg.end):
+                problems.append(
+                    f"{c.path}: plan.{name} {r.start}..{r.end} is outside "
+                    f"{b.universe}'s {name} segment {seg.start}..{seg.end}"
+                )
+    return problems
+
+
 def check(root: Path) -> list[str]:
     reg, problems = load(root)
     problems += _check_sequence(
@@ -287,4 +320,12 @@ def check(root: Path) -> list[str]:
     problems += _check_trials(reg)
     problems += _check_refusals(reg)
     problems += _check_reports(root, reg)
+    problems += _check_sequence(
+        BOUNDARIES,
+        [b.boundary_id for b in reg.boundaries],
+        [b.recorded_at for b in reg.boundaries],
+        "B",
+        4,
+    )
+    problems += _check_boundaries(root, reg)
     return problems

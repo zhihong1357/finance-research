@@ -2,7 +2,7 @@
 
 import math
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 from itertools import pairwise
 from typing import Annotated, Any, Self
@@ -43,6 +43,8 @@ TRIAL_ID = re.compile(r"T-\d{6}")
 DECISION_ID = re.compile(r"D-\d{4}")
 RELATION_ID = re.compile(r"R-\d{4}")
 REFUSAL_ID = re.compile(r"Q-\d{6}")
+BOUNDARY_ID = re.compile(r"B-\d{4}")
+DECISION_RECORD = re.compile(r"\d{4}")  # a decision record in docs/decisions/
 COMMIT = re.compile(r"[0-9a-f]{40}")
 SOURCE_ID = re.compile(r"[a-z0-9]+(\.[a-z0-9_]+)+")
 
@@ -51,6 +53,8 @@ TrialId = Annotated[str, StringConstraints(pattern=TRIAL_ID.pattern)]
 DecisionId = Annotated[str, StringConstraints(pattern=DECISION_ID.pattern)]
 RelationId = Annotated[str, StringConstraints(pattern=RELATION_ID.pattern)]
 RefusalId = Annotated[str, StringConstraints(pattern=REFUSAL_ID.pattern)]
+BoundaryId = Annotated[str, StringConstraints(pattern=BOUNDARY_ID.pattern)]
+DecisionRecord = Annotated[str, StringConstraints(pattern=DECISION_RECORD.pattern)]
 CommitId = Annotated[str, StringConstraints(pattern=COMMIT.pattern)]
 SourceId = Annotated[str, StringConstraints(pattern=SOURCE_ID.pattern)]
 
@@ -347,6 +351,44 @@ class Refusal(Strict):
     commit: CommitId
     dirty: bool
     prev: FingerprintText | None
+
+
+class Boundaries(Strict):
+    """A data set's three segments (docs/protocol.md section 3). Fixed once, never moved.
+
+    Set when the data set is first used for research; written once to
+    ``registry/boundaries.jsonl`` and never again for the same universe. Data
+    after the vault are forward data. The segments follow one another with no
+    gap and no overlap.
+    """
+
+    boundary_id: BoundaryId
+    recorded_at: UtcDatetime
+    universe: Universe
+    exploration: DateRange
+    confirmation: DateRange
+    vault: DateRange
+    decision: DecisionRecord  # the record in docs/decisions/ that set them
+    prev: FingerprintText | None
+
+    @model_validator(mode="after")
+    def _contiguous(self) -> Self:
+        one = timedelta(days=1)
+        if not (
+            self.exploration.end + one == self.confirmation.start
+            and self.confirmation.end + one == self.vault.start
+        ):
+            raise ValueError(
+                "exploration, confirmation and vault must follow one another with no gap"
+            )
+        return self
+
+    def segment(self, name: str) -> DateRange:
+        return {
+            "exploration": self.exploration,
+            "confirmation": self.confirmation,
+            "vault": self.vault,
+        }[name]
 
 
 class DecisionKind(StrEnum):

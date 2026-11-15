@@ -20,3 +20,4 @@
 | [0012](0012-protocol-revision-after-review.md) | 外部评审之后的四处规程修订 | 已采纳 |
 | [0013](0013-revised-series-storage.md) | 修订版本表的存放：每次加工写一份完整的表 | 已采纳 |
 | [0014](0014-offsite-backup.md) | 异地备份：找不回的原始数据在 Google Drive 再存一份 | 已采纳 |
+| [0015](0015-u1-segments.md) | U1 的三段边界：按月份 60/25/15，画像只用探索集 | 已采纳 |
