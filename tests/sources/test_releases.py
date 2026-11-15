@@ -84,8 +84,8 @@ def test_bea_fetch_stops_at_the_first_empty_page(server: FakeServer) -> None:
     assert [r.name for r in responses] == ["GDP-0", "GDP-1"]
 
 
-def _bls_page(names: list[str]) -> bytes:
-    return "".join(f'<li><a href="/news.release/archives/{n}">x</a></li>' for n in names).encode()
+def _bls_page(names: list[str], folder: str = "archives") -> bytes:
+    return "".join(f'<li><a href="/news.release/{folder}/{n}">x</a></li>' for n in names).encode()
 
 
 def test_bls_dates_come_from_the_file_names_at_half_past_eight_in_new_york() -> None:
@@ -99,6 +99,24 @@ def test_bls_dates_come_from_the_file_names_at_half_past_eight_in_new_york() -> 
     assert {r["release"] for r in rows} == {"BLS.CPI"}
     assert {r["timing"] for r in rows} == {"schedule"}
     assert rows[0]["page"] == "https://www.bls.gov/news.release/archives/cpi_10142026.htm"
+
+
+def test_bls_reads_old_releases_from_the_history_folder() -> None:
+    page = _bls_page(["cpi_12072001.txt"], folder="history") + _bls_page(["cpi_10142026.htm"])
+    rows = BLS_ADAPTER.parse_record(page, FETCHED, f"{BLS_ARCHIVE}/cpi.htm").table.to_pylist()
+    assert [r["event_time"] for r in rows] == [utc(2001, 12, 7, 13, 30), utc(2026, 10, 14, 12, 30)]
+    assert rows[0]["page"] == "https://www.bls.gov/news.release/history/cpi_12072001.txt"
+
+
+def test_bls_ignores_placeholder_links_inside_html_comments() -> None:
+    page = (
+        b"<!-- "
+        + _bls_page(["empsit_12042026.htm", "empsit_2027.htm"])
+        + b" -->"
+        + _bls_page(["empsit_11062026.htm"])
+    )
+    rows = BLS_ADAPTER.parse_record(page, FETCHED, f"{BLS_ARCHIVE}/empsit.htm").table.to_pylist()
+    assert [r["event_time"] for r in rows] == [utc(2026, 11, 6, 13, 30)]
 
 
 def test_bls_refuses_a_file_name_that_is_not_a_date() -> None:

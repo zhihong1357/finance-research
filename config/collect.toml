@@ -110,7 +110,7 @@ max_age_hours = 192
 added = "2026-11-16T00:00:00Z"
 enabled = true
 programs = ["cpi", "empsit"]    # CPI；就业形势报告（非农就业、失业率）
-agent = "finresearch/0.1 (personal research; https://github.com/zhihong1357/finance-research)"
+agent = "finresearch/0.1 (personal research)"   # BLS 拒绝带网址的 User-Agent（2026-11-15 实测返回 403）
 release_time = "08:30"          # BLS 主要数据的固定公布时刻
 release_zone = "America/New_York"
 

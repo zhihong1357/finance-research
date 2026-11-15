@@ -78,8 +78,10 @@ _BEA_ENTRY = re.compile(
     r'.*?datetime="(?P<when>[^"]+)"',
     re.S,
 )
+# BLS keeps placeholder links for coming releases inside HTML comments; they are not releases.
+_COMMENT = re.compile(r"<!--.*?-->", re.S)
 _BLS_LINK = re.compile(
-    r'href="(?P<href>[^"]*/archives/(?P<code>[a-z]+)_(?P<mmddyyyy>\d{8})\.(?:htm|txt|pdf))"'
+    r'href="(?P<href>[^"]*/(?:archives|history)/(?P<code>[a-z]+)_(?P<mmddyyyy>\d{8})\.(?:htm|txt|pdf))"'
 )
 
 
@@ -105,7 +107,7 @@ def bea_parse_url(content: bytes, fetched_at: datetime, url: str) -> PitTable:
     names = {str(v): k for k, v in _bea_products().items()}
     if product not in names:
         raise SourceError(f"{BEA_SOURCE}: unknown product {product!r} in {url}")
-    text = content.decode("utf-8", errors="replace")
+    text = _COMMENT.sub("", content.decode("utf-8", errors="replace"))
     rows: list[Row] = []
     for m in _BEA_ENTRY.finditer(text):
         try:
@@ -152,7 +154,7 @@ def bls_parse_url(content: bytes, fetched_at: datetime, url: str) -> PitTable:
     hh, mm = (int(x) for x in str(cfg["release_time"]).split(":"))
     at = time(hh, mm)
     seen: dict[date, str] = {}
-    for m in _BLS_LINK.finditer(content.decode("utf-8", errors="replace")):
+    for m in _BLS_LINK.finditer(_COMMENT.sub("", content.decode("utf-8", errors="replace"))):
         if m["code"] != program:
             continue
         d = m["mmddyyyy"]
