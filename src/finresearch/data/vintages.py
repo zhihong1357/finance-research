@@ -129,13 +129,25 @@ def concat(name: str, tables: Sequence[PitTable]) -> PitTable:
     return PitTable(name, KEYS, table)
 
 
-def merge(name: str, tables: Sequence[PitTable]) -> PitTable:
+class Conflicts(StrEnum):
+    """What ``merge`` does when fetches disagree on the value of one version."""
+
+    REFUSE = "refuse"  # a source that never changes what it published (an error if it does)
+    LATEST = "latest"  # a curated data set that corrects its records: the latest fetch wins
+
+
+def merge(
+    name: str, tables: Sequence[PitTable], conflicts: Conflicts = Conflicts.REFUSE
+) -> PitTable:
     """Tables from repeated fetches of one source as one table.
 
     The same version seen in several fetches is kept once, with the earliest
     ``ingested_at``. Two fetches that give one version (series, period and
     ``available_at``) different values, or the same value with a different
-    number of decimals, are refused: that is a source changing what it published.
+    number of decimals, disagree. ``Conflicts.REFUSE`` raises: that is a source
+    changing what it published. ``Conflicts.LATEST`` keeps the value of the
+    latest fetch, for a curated data set that corrects transcription errors in
+    old vintages.
     """
     for t in tables:
         if t.name != name:
@@ -147,8 +159,25 @@ def merge(name: str, tables: Sequence[PitTable]) -> PitTable:
     if seen.num_rows:
         counts = seen.group_by(ids).aggregate([([], "count_all")])
         if pc.max(counts.column("count_all")).as_py() > 1:
-            raise VintageError(f"{name}: fetches disagree on the value of a published version")
+            if conflicts is Conflicts.REFUSE:
+                raise VintageError(f"{name}: fetches disagree on the value of a published version")
+            seen = _latest_value(table, seen, ids)
     return concat(name, [PitTable(name, KEYS, seen.select(_empty().column_names))])
+
+
+def _latest_value(table: pa.Table, seen: pa.Table, ids: list[str]) -> pa.Table:
+    """Of the values one version was given, keep the one from the latest fetch.
+
+    Each value's latest sighting is the latest ``ingested_at`` among the rows that
+    carry it; the value seen last wins, and keeps the earliest ``ingested_at`` of
+    the fetches that showed that value (rows with ``seen``'s columns).
+    """
+    cols = [*ids, VALUE, VALUE_SCALE]
+    last = table.group_by(cols).aggregate([(INGESTED_AT, "max")])
+    last = last.rename_columns([*cols, "_last"])
+    newest = last.group_by(ids).aggregate([("_last", "max")]).rename_columns([*ids, "_last"])
+    winners = last.join(newest, keys=[*ids, "_last"], join_type="inner").select(cols)
+    return seen.join(winners, keys=cols, join_type="inner")
 
 
 def compact(t: PitTable) -> PitTable:

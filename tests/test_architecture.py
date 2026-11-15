@@ -27,6 +27,7 @@ FORBIDDEN_MODULES = (
     "duckdb",
     "pandas",
     "polars",
+    "python_calamine",
 )
 STUDIES_PACKAGE = SRC / "studies"
 STUDY_FORBIDDEN = (
