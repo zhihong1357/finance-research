@@ -83,6 +83,7 @@ uv run finresearch archive run --dataset bybit.trades.daily  # 列目录、推�
 uv run finresearch u1 plan                                 # 列出每张表、每家交易所还没加工的月份
 uv run finresearch u1 build --table u1.bars_1m --exchange bybit --month 2026-10  # 加工一个月并推送，需要 HF_TOKEN 和 HF_DATASET
 uv run finresearch u1 stored --table u1.funding --exchange binance                 # 列出数据集里已有的月份
+uv run finresearch u1 summary                                                      # 每张表的月数、行数、文件数和体积
 uv run finresearch u1 verify --table u1.funding --exchange binance --month 2026-10  # 重新加工一个已有的月份，不推送，比对内容指纹
 ```
 

@@ -7,8 +7,9 @@
 ``finresearch collect plan | run``  scheduled collection, one job per source
 ``finresearch monitor``  data freshness, outage issues, keeping schedules alive
 ``finresearch archive plan | run``  archive manifests: list, keep what changed, spot-check
-``finresearch u1 plan | build | stored | verify``  U1's tables: which months to build, build one,
-    which are stored, rebuild one without pushing and compare
+``finresearch u1 plan | build | stored | verify | summary``
+    U1's tables: which months to build, build one, which are stored, rebuild one
+    without pushing and compare, how much is stored
 """
 
 import argparse
@@ -117,6 +118,9 @@ def _parser() -> argparse.ArgumentParser:
     ur = uu.add_parser("stored", help="print the months already in the store as JSON")
     ur.add_argument("--table", help="one table of config/u1.toml (default: all)")
     ur.add_argument("--exchange", help="one exchange (default: all)")
+    us = uu.add_parser("summary", help="months, rows, input files and size of each table")
+    us.add_argument("--table", help="one table of config/u1.toml (default: all)")
+    us.add_argument("--exchange", help="one exchange (default: all)")
     uv = uu.add_parser("verify", help="rebuild one stored month without pushing; compare")
     uv.add_argument("--table", required=True)
     uv.add_argument("--exchange", required=True)
@@ -240,6 +244,17 @@ def _u1(args: argparse.Namespace) -> int:
                         ]
                     )
                 )
+                return 0
+            if args.cmd == "summary":
+                # Counts and sizes only (decision 0008): nothing derived from the data's values.
+                tables = [args.table] if args.table else None
+                for j in u1.jobs(cfg, tables, args.exchange):
+                    sm = u1.summary(j, remote)
+                    span = f"{sm.months[0]:%Y-%m} to {sm.months[-1]:%Y-%m}" if sm.months else "none"
+                    print(
+                        f"{sm.table} {sm.exchange}: {len(sm.months)} months ({span}), "
+                        f"{sm.rows:,} rows from {sm.inputs:,} files, {sm.bytes / 1e9:.2f} GB"
+                    )
                 return 0
             if args.cmd == "verify":
                 year, month = (int(x) for x in args.month.split("-"))

@@ -275,6 +275,19 @@ def test_a_stored_partition_rebuilds_to_the_same_content(fake: FakeArchive, tmp_
     )
 
 
+def test_the_summary_adds_up_the_stored_partitions(fake: FakeArchive, tmp_path: Path) -> None:
+    _october(fake)
+    remote = DirectoryRemote(tmp_path / "remote")
+    fake.publish(remote, utc(2026, 11, 9))
+    assert u1.summary(BINANCE, remote) == u1.Summary(BARS, "binance", [], 0, 0, 0)
+    built = u1.build(BINANCE, OCTOBER, remote, LIMITS, tmp_path / "b", row_group_rows=2).card
+    folder = remote.root / "canonical/u1.bars_1m/v1/2026-10"
+    size = sum(f.stat().st_size for f in folder.iterdir() if f.name.startswith("binance."))
+    assert u1.summary(BINANCE, remote) == u1.Summary(BARS, "binance", [OCTOBER], 4, 3, size)
+    assert (built.rows, len(built.inputs)) == (4, 3)
+    assert u1.summary(BYBIT, remote).months == []
+
+
 def test_a_file_that_fails_its_checksum_stops_the_build(fake: FakeArchive, tmp_path: Path) -> None:
     _october(fake)
     url = fake.entries["m"][0].url
