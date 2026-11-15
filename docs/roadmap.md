@@ -267,6 +267,7 @@
 | 10 | OKX 的数据是否录制 | 不录。所有者交给 AI 按重要性决定：没有哪个阶段的验收依赖 OKX，Deribit 和 Hyperliquid 已经覆盖跨交易所的比较，而 OKX 的接口协议不允许超出个人交易需要的自动抓取（[架构](architecture.md) 7.5）。以后某个研究问题确实需要第三个交易所时再提出来 | 2026-11-14 |
 | — | U1 的 1 分钟数据怎么做 | 采纳（[决策 0010](decisions/0010-u1-minute-data.md)） | 2026-11-13 |
 | — | 持仓量表的时间 | 采纳选项 (a)（[决策 0011](decisions/0011-open-interest-time-labels.md)） | 2026-11-14 |
+| — | 修订版本表的存放 | 采纳选项 (b)：每次加工写一份完整的表（[决策 0013](decisions/0013-revised-series-storage.md)） | 2026-11-15 |
 | — | 2.6 的 VIX 历史 | 等 Cboe 许可，获批前不收；先收 Deribit 的 DVOL。Cboe 的网站条款把存入数据库列为需要书面同意的事，与期权链是同一个问题（[架构](architecture.md) 7.5） | 2026-11-15 |
 
 ## 参考
