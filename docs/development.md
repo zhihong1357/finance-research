@@ -85,6 +85,9 @@ uv run finresearch u1 build --table u1.bars_1m --exchange bybit --month 2026-10 
 uv run finresearch u1 stored --table u1.funding --exchange binance                 # 列出数据集里已有的月份
 uv run finresearch u1 summary                                                      # 每张表的月数、行数、文件数和体积
 uv run finresearch u1 verify --table u1.funding --exchange binance --month 2026-10  # 重新加工一个已有的月份，不推送，比对内容指纹
+uv run finresearch revised plan                          # 列出修订版本表（config/revised.toml）
+uv run finresearch revised build --table rates.nyfed     # 由全部原始响应加工一份完整的表，内容变了才推送
+uv run finresearch revised verify --table rates.nyfed    # 用最新一份卡片上的原始响应重新加工，不推送，比对内容指纹
 ```
 
 ### 记一次试验

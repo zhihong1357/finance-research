@@ -1,0 +1,7 @@
+# 修订版本表（Phase 2.6，决策 0013）：由采集下来的全部原始响应合并成一张表，每次加工写一份完整的表。
+# 内容与最新的一份相同就不写。工作流"修订版本表"按这里的列表逐张加工。
+
+[tables."rates.nyfed"]
+source = "nyfed.reference_rates"   # config/collect.toml 里的数据源
+format = 1                         # 表的格式版本：格式变了就升，写到新目录，旧的不覆盖
+part = "nyfed"                     # 文件名
