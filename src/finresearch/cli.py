@@ -15,6 +15,7 @@
 ``finresearch revised build | verify``  tables of revised series (decision 0013): build
     one from every collected response, or rebuild the latest build and compare
 ``finresearch quality plan | run``  quality checks of U1 (2.7): report every month privately
+``finresearch profile run --exchange binance``  data profile of U1 (2.8), exploration only
 ``finresearch schedules catchup``  start the scheduled runs GitHub missed
 ``finresearch accept plan | run``  acceptance check of Phase 2.6 (2.6.8) on the real
     data: three times on every row; revisions seen when they happened, not before
@@ -35,6 +36,7 @@ from finresearch import (
     backup,
     collect,
     monitor,
+    profile,
     quality,
     revised,
     schedules,
@@ -42,6 +44,7 @@ from finresearch import (
 )
 from finresearch.core.config import CONFIG_DIR, load_toml
 from finresearch.core.time import format_utc, parse_utc
+from finresearch.data import bars
 from finresearch.data.gdrive import Drive, DriveError
 from finresearch.data.gdrive import Settings as DriveSettings
 from finresearch.data.hub import HubRemote
@@ -53,8 +56,8 @@ from finresearch.data.table import TableError
 from finresearch.github import GitHub, GitHubError
 from finresearch.registry.appendonly import check_append_only, check_commits
 from finresearch.registry.ledger import read_chain
-from finresearch.registry.models import Refusal, Segment, Universe, plan_fingerprint
-from finresearch.registry.validate import REFUSALS, check, load
+from finresearch.registry.models import Boundaries, Refusal, Segment, Universe, plan_fingerprint
+from finresearch.registry.validate import BOUNDARIES, REFUSALS, check, load
 from finresearch.runner import RunError, execute, record, reproduce
 from finresearch.sources.base import SourceError
 
@@ -171,6 +174,12 @@ def _parser() -> argparse.ArgumentParser:
     qr = qa.add_parser("run", help="check every stored month of one table; report privately")
     qr.add_argument("--table", required=True)
     qr.add_argument("--month", help="only this month (YYYY-MM)")
+
+    pf = sub.add_parser("profile", help="data profile of U1").add_subparsers(
+        dest="cmd", required=True
+    )
+    pr = pf.add_parser("run", help="profile one exchange's bars on the exploration segment")
+    pr.add_argument("--exchange", required=True)
 
     sc = sub.add_parser("schedules", help="scheduled runs").add_subparsers(
         dest="cmd", required=True
@@ -544,6 +553,33 @@ def _quality(args: argparse.Namespace) -> int:
     return 0
 
 
+def _profile(args: argparse.Namespace) -> int:
+    """The results are derived from third-party data: they go to the private dataset only."""
+    cfg = load_toml("profile")
+    if args.exchange not in cfg["exchanges"]:
+        print(f"error: {args.exchange} is not one of {cfg['exchanges']}")
+        return 1
+    chain = read_chain(CONFIG_DIR.parent / BOUNDARIES)
+    found = [Boundaries.model_validate(r) for r in chain if r.get("universe") == Universe.U1.value]
+    if not found:
+        print("error: U1 has no segments in registry/boundaries.jsonl")
+        return 1
+    hub = load_toml("storage")["hub"]
+    remote, limits = HubRemote.from_environment(hub), Limits.from_config(hub)
+    fmt = int(u1.u1_config()["tables"][bars.NAME]["format"])
+    read = profile.door_reader(found[0], remote, limits, fmt, args.exchange)
+    try:
+        p = profile.profile(found[0], args.exchange, read, cfg)
+        with tempfile.TemporaryDirectory(prefix="finresearch-profile-") as tmp:
+            path = profile.save(p, remote, limits, Path(tmp), datetime.now(UTC).date())
+    except (StoreError, PartitionError) as exc:
+        print(f"failed: {exc}")
+        return 1
+    print(f"U1 {args.exchange}: {len(p.months)} month(s), {len(p.breadth)} quarter window(s)")
+    print(f"written to the private dataset: {path}")
+    return 0
+
+
 def _schedules() -> int:
     cfg = load_toml("schedules")
     groups = {str(g["cron"]): name for name, g in collect.collect_config()["groups"].items()}
@@ -620,6 +656,8 @@ def main(argv: list[str] | None = None) -> int:
             return _schedules()
         if args.area == "quality":
             return _quality(args)
+        if args.area == "profile":
+            return _profile(args)
     except (
         RunError,
         collect.CollectError,
@@ -629,6 +667,7 @@ def main(argv: list[str] | None = None) -> int:
         backup.BackupError,
         acceptance.AcceptanceError,
         quality.QualityError,
+        profile.ProfileError,
         DriveError,
     ) as exc:
         print(f"error: {exc}")
