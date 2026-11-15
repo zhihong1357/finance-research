@@ -1,8 +1,8 @@
 # 异地备份（Phase 2.9，决策 0014）：丢了就找不回的原始数据，每天在 Google Drive 再存一份。
 # 授权的三个值放在 GitHub Secrets（GDRIVE_CLIENT_ID、GDRIVE_CLIENT_SECRET、GDRIVE_REFRESH_TOKEN）。
 
-enabled = false                 # 所有者把授权存进 Secrets、实测通过之后打开
-added = "2026-11-16T00:00:00Z"  # 打开的时刻；监控从这时起计算备份是否中断
+enabled = true                  # 2026-11-15 所有者存好授权；在分支上实测备份和演练都通过后打开
+added = "2026-11-15T06:30:00Z"  # 打开的时刻；监控从这时起计算备份是否中断
 folder = "finresearch-backup"   # Drive 里的文件夹名（应用只看得到它自己建的文件）
 max_age_hours = 50              # 超过这么久没有成功的备份就开问题：每天一次，留两天余量
 max_days_per_run = 60           # 一次最多传多少个"数据源·日"的包：第一次补历史时分几次做完
