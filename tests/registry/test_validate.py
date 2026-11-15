@@ -16,6 +16,7 @@ from tests.registry.conftest import (
     CONFIG,
     END_OF_EXPLORATION,
     OUTPUT,
+    SOURCE,
     manifest,
     registered,
     write_registry,
@@ -76,6 +77,19 @@ def test_file_and_reference_problems(tmp_path: Path) -> None:
     problems = check(bad)
     assert _has(problems, "file name must be the id")
     assert _has(problems, "not valid TOML")
+
+
+def test_the_listed_sources_must_reach_the_data_level(tmp_path: Path) -> None:
+    root = write_registry(tmp_path, card=CARD.replace('data_level = "L1"', 'data_level = "L2"'))
+    assert check(root) == [
+        "registry/hypotheses/H-0001.toml: the mechanism needs L2 data, "
+        "the finest listed source is L1"
+    ]
+    unlevelled = write_registry(tmp_path / "b", source=SOURCE.replace('data_level = "L1"\n', ""))
+    assert check(unlevelled) == [
+        "registry/hypotheses/H-0001.toml: the mechanism needs L1 data, "
+        "the finest listed source is of no data level"
+    ]
 
 
 def test_confirmation_needs_registration_first(tmp_path: Path) -> None:

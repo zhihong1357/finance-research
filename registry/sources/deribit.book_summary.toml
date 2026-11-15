@@ -8,6 +8,7 @@ available_at = "抓取时刻（UTC）"
 rate_limit = "公开接口；每次运行 6 个请求（3 个币种 × 期货、期权）"
 terms_url = "https://support.deribit.com/hc/en-us/articles/25944532191645-Deribit-Exchange-Membership-Terms-Deribit-FZE"
 terms_checked = true
+data_level = "L1"
 known_issues = [
   "条款：市场数据和派生数据只限个人使用，不得发布。原始文件只放在私有数据集里，由它得出的结果不进公开仓库（决策 0008）",
   "没有免费的历史数据，没录下来的时刻永久缺失",

@@ -15,11 +15,13 @@ power = "探索段 141 对，相关系数的标准误约 0.08，足以区分理�
 universe = "synthetic"
 instruments = "合成的月度指标和月度收益"
 horizon = "2 个月"
+horizon_days = 61                    # 两个月按 61 天算（决策 0012）
 output = "none"
 
 [plan]
 metric = "首发值与 2 个月后收益的皮尔逊相关系数"
 test = "费希尔变换的 95% 置信区间是否包含理论值；时点值与修订值逐对比较"
+embargo_days = 61                    # 每段开头 61 天不参与检验，至少等于预测周期（决策 0012）
 
 [plan.exploration]
 start = 2000-01-01
