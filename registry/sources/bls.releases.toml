@@ -1,0 +1,15 @@
+id = "bls.releases"
+name = "美国劳工统计局（BLS）新闻发布日期：CPI、就业形势报告"
+url = "https://www.bls.gov/bls/news-release/"
+access = "archive"
+redownloadable = true
+event_time = "发布日的 8:30（纽约时间）：日期取自存档文件名（cpi_11132026.htm），时刻是 BLS 主要数据的固定公布时刻"
+available_at = "同上"
+rate_limit = "每周一次，每次 2 个页面；请求注明联系人（GitHub Secret BLS_CONTACT），否则 BLS 拒绝"
+terms_url = "https://www.bls.gov/opub/copyright-information.htm"
+terms_checked = true
+known_issues = [
+  "条款：公有领域，使用无需许可，要求注明 BLS 是来源",
+  "时刻按 8:30 统一处理，没有逐篇核对新闻稿上的解禁时刻",
+  "BLS 对没有注明联系人的自动请求返回 403；联系人只放在 GitHub Secrets",
+]

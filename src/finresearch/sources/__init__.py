@@ -8,6 +8,7 @@ from finresearch.sources import (
     hyperliquid,
     nyfed_rates,
     philly_rtdsm,
+    releases,
     synthetic,
 )
 from finresearch.sources.base import Adapter
@@ -22,6 +23,8 @@ ADAPTERS: dict[str, Adapter] = {
         hyperliquid.ADAPTER,
         nyfed_rates.ADAPTER,
         philly_rtdsm.ADAPTER,
+        releases.BEA_ADAPTER,
+        releases.BLS_ADAPTER,
         cftc_cot.ADAPTER,
     )
 }

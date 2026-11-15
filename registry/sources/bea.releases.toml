@@ -1,0 +1,14 @@
+id = "bea.releases"
+name = "美国经济分析局（BEA）新闻发布时刻：GDP、PCE 物价"
+url = "https://www.bea.gov/news/archive"
+access = "archive"
+redownloadable = true
+event_time = "发布时刻：2014 年起存档每条都写到分钟，例如 2026-09-30T08:30:00-04:00；只写日期的（多在 2013 年以前）取那天开始"
+available_at = "写到分钟的同上；只写日期的取那天结束（美东），不早于实际"
+rate_limit = "每周一次，每个产品约 10 页"
+terms_url = "https://www.bea.gov/help/guidelines-for-citing-bea"
+terms_checked = false
+known_issues = [
+  "BEA 发布的内容属于美国联邦政府作品（公有领域）；引用时注明 BEA。具体的引用指引页面没有逐条核实",
+  "存档从 1996 年起；2013 年以前多数只写日期，存档里写成美东午夜",
+]

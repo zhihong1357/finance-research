@@ -96,6 +96,24 @@ backfill_days = 2               # 加入后两天内取全部还能取到的历�
 "60" = { backfill_days_back = 200 }     # 1 分钟：接口只留约 6 个月，过期就没了
 "3600" = { backfill_days_back = 2200 }  # 1 小时：接口从 2021 年 3 月指数开始时就有
 
+[sources."bea.releases"]
+group = "weekly"
+max_age_hours = 192
+added = "2026-11-16T00:00:00Z"
+enabled = true
+products = { GDP = 451, PCE_PRICE = 716 }   # BEA 新闻存档的产品编号：国内生产总值；PCE 物价（随个人收入与支出发布）
+max_pages = 30                  # 每页 20 条；存档从 2011 年起，GDP 约 9 页
+
+[sources."bls.releases"]
+group = "weekly"
+max_age_hours = 192
+added = "2026-11-16T00:00:00Z"
+enabled = true
+programs = ["cpi", "empsit"]    # CPI；就业形势报告（非农就业、失业率）
+agent = "finresearch/0.1 (personal research; https://github.com/zhihong1357/finance-research)"
+release_time = "08:30"          # BLS 主要数据的固定公布时刻
+release_zone = "America/New_York"
+
 [monitor]
 issue_marker = "finresearch:outage"   # 监控开的问题里带这个标记，用来认出自己开过的问题
 inactivity_warn_days = 45             # 公开仓库 60 天无活动会停用定时任务；45 天时提醒所有者
