@@ -1,0 +1,74 @@
+# 2.6 的验收（2.6.8）：在真实数据上核对每个序列的三个时间，以及修订前后的查询结果。
+# 只手动运行。每张表或数据源一个任务，一个失败不影响其他。公开日志只写行数、次数和结论（决策 0008）。
+name: 2.6 验收
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 抽样的种子（留空用当天日期）
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acceptance
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: 列出核对对象
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      targets: ${{ steps.plan.outputs.targets }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - id: plan
+        name: 列出
+        run: echo "targets=$(uv run finresearch accept plan)" >> "$GITHUB_OUTPUT"
+
+  target:
+    needs: plan
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.plan.outputs.targets) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - name: 核对
+        env:
+          TARGET: ${{ matrix.target }}
+          SEED: ${{ inputs.seed }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET: ${{ vars.HF_DATASET }}
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+        run: |
+          if [ -n "$SEED" ]; then
+            uv run finresearch accept run --target "$TARGET" --seed "$SEED"
+          else
+            uv run finresearch accept run --target "$TARGET"
+          fi

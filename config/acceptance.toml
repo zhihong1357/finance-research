@@ -1,0 +1,5 @@
+# 2.6 的验收（2.6.8，docs/roadmap.md）：在真实数据上核对"每个序列有三个时间"和"修订前后查询分别得到旧值和新值"。
+# 修订版本表（config/revised.toml）全部核对；下面是还没有规范层的录制类数据源，从原始层逐个响应解析后核对三个时间。
+
+recorded = ["deribit.dvol", "bea.releases", "bls.releases"]
+sample = 200        # 每张表随机抽多少次修订来查询（每次查修订前一微秒和修订那一刻）

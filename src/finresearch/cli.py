@@ -14,6 +14,8 @@
     or download a few packs and compare them with the remote store
 ``finresearch revised build | verify``  tables of revised series (decision 0013): build
     one from every collected response, or rebuild the latest build and compare
+``finresearch accept plan | run``  acceptance check of Phase 2.6 (2.6.8) on the real
+    data: three times on every row; revisions seen when they happened, not before
 """
 
 import argparse
@@ -25,7 +27,7 @@ import tomllib
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from finresearch import archive, backup, collect, monitor, revised, u1
+from finresearch import acceptance, archive, backup, collect, monitor, revised, u1
 from finresearch.core.config import load_toml
 from finresearch.core.time import format_utc, parse_utc
 from finresearch.data.gdrive import Drive, DriveError
@@ -34,6 +36,7 @@ from finresearch.data.hub import HubRemote
 from finresearch.data.pit import AccessRefusedError
 from finresearch.data.selftest import selftest
 from finresearch.data.store import Limits, StoreError
+from finresearch.data.table import TableError
 from finresearch.github import GitHub, GitHubError
 from finresearch.registry.appendonly import check_append_only, check_commits
 from finresearch.registry.ledger import read_chain
@@ -147,6 +150,14 @@ def _parser() -> argparse.ArgumentParser:
     bk.add_parser("run", help="upload every finished day not backed up yet")
     bd = bk.add_parser("drill", help="download a few packs at random; compare with the store")
     bd.add_argument("--seed", type=int, help="seed of the sample (default: today)")
+
+    ac = sub.add_parser("accept", help="acceptance check of Phase 2.6").add_subparsers(
+        dest="cmd", required=True
+    )
+    ac.add_parser("plan", help="print what the check covers as JSON")
+    ar = ac.add_parser("run", help="check one revised table or recorded source")
+    ar.add_argument("--target", required=True)
+    ar.add_argument("--seed", type=int, help="seed of the sample of revisions (default: today)")
     return ap
 
 
@@ -475,6 +486,34 @@ def _revised(args: argparse.Namespace) -> int:
     return 0 if check.verdict is revised.Verdict.SAME else 1
 
 
+def _accept(args: argparse.Namespace) -> int:
+    """Logs carry counts only: the data are third-party (decision 0008)."""
+    if args.cmd == "plan":
+        print(json.dumps(acceptance.targets()))
+        return 0
+    seed: int = args.seed if args.seed is not None else int(f"{datetime.now(UTC):%Y%m%d}")
+    hub = load_toml("storage")["hub"]
+    remote, limits = HubRemote.from_environment(hub), Limits.from_config(hub)
+    try:
+        with tempfile.TemporaryDirectory(prefix="finresearch-accept-") as tmp:
+            r = acceptance.run(args.target, remote, limits, Path(tmp), seed)
+    except StoreError as exc:
+        print(f"failed: {exc}")
+        return 1
+    except TableError as exc:  # a row without its three times, or fetched before public
+        print(f"{args.target}: FAIL ({exc})")
+        return 1
+    print(f"{r.target}: {r.times.rows} rows with three times; {r.times.early} public too early")
+    if r.probe is not None:
+        p = r.probe
+        print(
+            f"{r.target} (seed {seed}): {p.revised} revised observations; "
+            f"{p.probed} revisions asked before and at, {p.wrong} wrong answers"
+        )
+    print(f"{r.target}: {'pass' if r.ok else 'FAIL'}")
+    return 0 if r.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
 
@@ -497,6 +536,8 @@ def main(argv: list[str] | None = None) -> int:
             return _revised(args)
         if args.area == "backup":
             return _backup(args)
+        if args.area == "accept":
+            return _accept(args)
     except (
         RunError,
         collect.CollectError,
@@ -504,6 +545,7 @@ def main(argv: list[str] | None = None) -> int:
         u1.U1Error,
         revised.RevisedError,
         backup.BackupError,
+        acceptance.AcceptanceError,
         DriveError,
     ) as exc:
         print(f"error: {exc}")
