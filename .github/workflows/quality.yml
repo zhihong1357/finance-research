@@ -1,0 +1,76 @@
+# U1 的质量检查（Phase 2.7）：每张表一个任务，逐月检查格式、取值范围、缺口、新鲜度和不同来源的价格。
+# 报告写进私有数据集（里面有合约和时刻）；公开日志只写计数（决策 0008）。每月 16 日跑一次（15 日加工完上个月之后），也可手动运行。
+name: 质量检查
+
+on:
+  schedule:
+    - cron: "29 7 16 * *"   # 每月 16 日 07:29 UTC
+  workflow_dispatch:
+    inputs:
+      month:
+        description: 只查一个月（YYYY-MM；留空查全部）
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: 列出表
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tables: ${{ steps.plan.outputs.tables }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - id: plan
+        name: 列出
+        run: echo "tables=$(uv run finresearch quality plan)" >> "$GITHUB_OUTPUT"
+
+  table:
+    needs: plan
+    name: ${{ matrix.table }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        table: ${{ fromJSON(needs.plan.outputs.tables) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.11.32"
+          enable-cache: true
+
+      - name: 安装
+        run: uv sync --locked
+
+      - name: 检查
+        env:
+          TABLE: ${{ matrix.table }}
+          MONTH: ${{ inputs.month }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET: ${{ vars.HF_DATASET }}
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+        run: |
+          if [ -n "$MONTH" ]; then
+            uv run finresearch quality run --table "$TABLE" --month "$MONTH"
+          else
+            uv run finresearch quality run --table "$TABLE"
+          fi

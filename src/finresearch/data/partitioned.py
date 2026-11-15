@@ -382,3 +382,23 @@ class PartitionedTable:
             return Window(pa.schema(fields).empty_table(), used)
         table = pa.concat_tables(pieces, promote_options="default")
         return Window(latest_versions(table, self.keys, at, single_version=single), used)
+
+
+def read_month(
+    table: str, fmt: int, month: date, remote: Remote, limits: Limits, local: Path
+) -> dict[str, pa.Table]:
+    """Every part of one month as stored, each checked against its card: part -> rows.
+
+    For the data platform's own checks (``quality.py``), which look at every row
+    and every version. Research code reads through the point-in-time door instead.
+    """
+    folder = month_dir(table, fmt, month)
+    pull(remote, local, folder, limits)
+    out: dict[str, pa.Table] = {}
+    for card_path in sorted((local / folder).glob("*.json")):
+        card = PartitionCard.from_json(card_path.read_text(encoding="utf-8"))
+        data = card_path.with_suffix(".parquet")
+        if not data.is_file() or digest_file(data).hex != card.sha256:
+            raise PartitionError(f"{card.name}: the file is missing or does not match its card")
+        out[card.part] = pq.read_table(data)
+    return out

@@ -1,0 +1,29 @@
+# U1 的质量检查（Phase 2.7，src/finresearch/quality.py）。每项检查数出可疑的行，超过 max_share（占所查行数的比例）就标记。
+# 标记不改数据：一分钟涨跌 30% 可能是真的（暴跌、插针）。报告写进私有数据集，公开日志只写计数（决策 0008）。
+
+[tables."u1.bars_1m"]
+max_move = 0.30               # 一分钟收盘价相对上一分钟变动超过 30%
+max_move_share = 0.00001      # 超过十万分之一的分钟就标记
+max_impossible_share = 0.000001   # 不可能的 K 线（最高价低于收盘价等）超过百万分之一就标记
+max_gap_share = 0.01          # 一个合约当月第一根到最后一根之间缺的分钟超过 1%。Bybit 由逐笔成交算出，没成交的分钟本来就没有，所以它的比例会高
+
+[tables."u1.mark_1m"]
+max_move = 0.30
+max_move_share = 0.00001
+max_gap_share = 0.01
+
+[tables."u1.funding"]
+max_abs_rate = 0.05           # 一次结算的资金费率绝对值超过 5%（交易所的上限多在 0.3% 到 4%）
+settlement_slack_seconds = 60 # 结算时刻离整点超过 1 分钟算"不在整点"
+max_off_hour_share = 0.0
+
+[tables."u1.open_interest_5m"]
+max_gap_share = 0.01
+
+[cross_exchange]              # 同一合约同一分钟，Binance 和 Bybit 的收盘价
+max_gap = 0.01                # 相差超过 1%
+max_gap_share = 0.001         # 超过千分之一的分钟就标记
+
+[last_vs_mark]                # 同一合约同一分钟，Binance 的最新成交价和标记价格
+max_gap = 0.02
+max_gap_share = 0.001

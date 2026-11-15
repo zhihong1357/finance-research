@@ -14,6 +14,7 @@
     or download a few packs and compare them with the remote store
 ``finresearch revised build | verify``  tables of revised series (decision 0013): build
     one from every collected response, or rebuild the latest build and compare
+``finresearch quality plan | run``  quality checks of U1 (2.7): report every month privately
 ``finresearch schedules catchup``  start the scheduled runs GitHub missed
 ``finresearch accept plan | run``  acceptance check of Phase 2.6 (2.6.8) on the real
     data: three times on every row; revisions seen when they happened, not before
@@ -28,12 +29,23 @@ import tomllib
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from finresearch import acceptance, archive, backup, collect, monitor, revised, schedules, u1
+from finresearch import (
+    acceptance,
+    archive,
+    backup,
+    collect,
+    monitor,
+    quality,
+    revised,
+    schedules,
+    u1,
+)
 from finresearch.core.config import CONFIG_DIR, load_toml
 from finresearch.core.time import format_utc, parse_utc
 from finresearch.data.gdrive import Drive, DriveError
 from finresearch.data.gdrive import Settings as DriveSettings
 from finresearch.data.hub import HubRemote
+from finresearch.data.partitioned import PartitionError
 from finresearch.data.pit import AccessRefusedError
 from finresearch.data.selftest import selftest
 from finresearch.data.store import Limits, StoreError
@@ -151,6 +163,14 @@ def _parser() -> argparse.ArgumentParser:
     bk.add_parser("run", help="upload every finished day not backed up yet")
     bd = bk.add_parser("drill", help="download a few packs at random; compare with the store")
     bd.add_argument("--seed", type=int, help="seed of the sample (default: today)")
+
+    qa = sub.add_parser("quality", help="quality checks of U1").add_subparsers(
+        dest="cmd", required=True
+    )
+    qa.add_parser("plan", help="print the tables checked as JSON")
+    qr = qa.add_parser("run", help="check every stored month of one table; report privately")
+    qr.add_argument("--table", required=True)
+    qr.add_argument("--month", help="only this month (YYYY-MM)")
 
     sc = sub.add_parser("schedules", help="scheduled runs").add_subparsers(
         dest="cmd", required=True
@@ -492,6 +512,36 @@ def _revised(args: argparse.Namespace) -> int:
     return 0 if check.verdict is revised.Verdict.SAME else 1
 
 
+def _quality(args: argparse.Namespace) -> int:
+    """Logs carry counts only: the reports name contracts and times (decision 0008)."""
+    if args.cmd == "plan":
+        print(json.dumps(sorted(quality.CHECKERS)))
+        return 0
+    only = date.fromisoformat(f"{args.month}-01") if args.month else None
+    hub = load_toml("storage")["hub"]
+    remote, limits = HubRemote.from_environment(hub), Limits.from_config(hub)
+    try:
+        with tempfile.TemporaryDirectory(prefix="finresearch-quality-") as tmp:
+            r = quality.run(
+                args.table,
+                remote,
+                limits,
+                Path(tmp),
+                datetime.now(UTC).date(),
+                load_toml("quality"),
+                u1.u1_config(),
+                only,
+            )
+    except (StoreError, PartitionError) as exc:
+        print(f"failed: {exc}")
+        return 1
+    print(f"{r.table}: {r.fresh.line()}")
+    print(f"{r.table}: {r.months} month(s), {r.findings} check(s)")
+    for name, months in sorted(r.flagged.items()):
+        print(f"{r.table}: flagged in {months} month(s): {name}")
+    return 0
+
+
 def _schedules() -> int:
     cfg = load_toml("schedules")
     groups = {str(g["cron"]): name for name, g in collect.collect_config()["groups"].items()}
@@ -566,6 +616,8 @@ def main(argv: list[str] | None = None) -> int:
             return _accept(args)
         if args.area == "schedules":
             return _schedules()
+        if args.area == "quality":
+            return _quality(args)
     except (
         RunError,
         collect.CollectError,
@@ -574,6 +626,7 @@ def main(argv: list[str] | None = None) -> int:
         revised.RevisedError,
         backup.BackupError,
         acceptance.AcceptanceError,
+        quality.QualityError,
         DriveError,
     ) as exc:
         print(f"error: {exc}")
