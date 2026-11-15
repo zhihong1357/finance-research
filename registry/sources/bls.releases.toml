@@ -11,5 +11,6 @@ terms_checked = true
 known_issues = [
   "条款：公有领域，使用无需许可，要求注明 BLS 是来源",
   "时刻按 8:30 统一处理，没有逐篇核对新闻稿上的解禁时刻",
-  "BLS 对没有注明联系人的自动请求返回 403；联系人只放在 GitHub Secrets",
+  "BLS 对没有注明联系人的自动请求返回 403，对带网址的 User-Agent 也返回 403；联系人只放在 GitHub Secrets",
+  "页面的 HTML 注释里有还没公布的下一期链接，解析前去掉；旧的新闻稿在 history/ 目录",
 ]
