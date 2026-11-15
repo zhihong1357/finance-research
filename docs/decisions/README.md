@@ -19,3 +19,4 @@
 | [0011](0011-open-interest-time-labels.md) | 持仓量表的时间：保留归档的时间标签，可用时刻推后一个周期 | 已采纳 |
 | [0012](0012-protocol-revision-after-review.md) | 外部评审之后的四处规程修订 | 已采纳 |
 | [0013](0013-revised-series-storage.md) | 修订版本表的存放：每次加工写一份完整的表 | 已采纳 |
+| [0014](0014-offsite-backup.md) | 异地备份：找不回的原始数据在 Google Drive 再存一份 | 已采纳 |
