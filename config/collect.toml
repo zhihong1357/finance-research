@@ -127,4 +127,5 @@ scheduled_workflows = [
   ".github/workflows/u1-crosscheck.yml",
   ".github/workflows/revised.yml",
   ".github/workflows/backup.yml",
+  ".github/workflows/quality.yml",
 ]
