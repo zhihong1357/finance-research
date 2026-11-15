@@ -44,9 +44,10 @@ def request(
     *,
     params: Mapping[str, str] | None = None,
     body: Mapping[str, Any] | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> bytes:
     """The response body as sent; ``SourceError`` once retries run out or on a hard error."""
-    return fetch(method, url, params=params, body=body).content
+    return fetch(method, url, params=params, body=body, headers=headers).content
 
 
 _local = threading.local()
@@ -97,8 +98,13 @@ def fetch(
     *,
     params: Mapping[str, str] | None = None,
     body: Mapping[str, Any] | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> Reply:
-    """Like ``request``, but also returns the headers (for ETag and Content-Length)."""
+    """Like ``request``, but also returns the headers (for ETag and Content-Length).
+
+    ``headers`` add to or replace the client's own (a source that must name a
+    contact in its User-Agent, for example).
+    """
     cfg = _settings()
     retries, wait = int(cfg["retries"]), float(cfg["retry_wait_seconds"])
     client = _client(cfg)
@@ -109,7 +115,9 @@ def fetch(
         if rate is not None:
             wait_turn(host, float(rate))
         try:
-            response = client.request(method, url, params=params, json=body)
+            response = client.request(
+                method, url, params=params, json=body, headers=dict(headers or {})
+            )
         except httpx2.TransportError as exc:
             last = type(exc).__name__
         else:

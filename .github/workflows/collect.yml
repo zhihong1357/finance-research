@@ -76,4 +76,5 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_DATASET: ${{ vars.HF_DATASET }}
           HF_HUB_DISABLE_PROGRESS_BARS: "1"
+          BLS_CONTACT: ${{ secrets.BLS_CONTACT }}   # BLS 要求自动请求注明联系人；只有 bls.releases 用
         run: uv run finresearch collect run --source "$SOURCE"
