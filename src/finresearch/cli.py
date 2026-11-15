@@ -10,6 +10,8 @@
 ``finresearch u1 plan | build | stored | verify | summary``
     U1's tables: which months to build, build one, which are stored, rebuild one
     without pushing and compare, how much is stored
+``finresearch backup run | drill``  offsite backup (decision 0014): upload finished days,
+    or download a few packs and compare them with the remote store
 ``finresearch revised build | verify``  tables of revised series (decision 0013): build
     one from every collected response, or rebuild the latest build and compare
 """
@@ -23,9 +25,11 @@ import tomllib
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from finresearch import archive, collect, monitor, revised, u1
+from finresearch import archive, backup, collect, monitor, revised, u1
 from finresearch.core.config import load_toml
 from finresearch.core.time import format_utc, parse_utc
+from finresearch.data.gdrive import Drive, DriveError
+from finresearch.data.gdrive import Settings as DriveSettings
 from finresearch.data.hub import HubRemote
 from finresearch.data.pit import AccessRefusedError
 from finresearch.data.selftest import selftest
@@ -138,6 +142,11 @@ def _parser() -> argparse.ArgumentParser:
     rb.add_argument("--table", required=True)
     rc = rv.add_parser("verify", help="rebuild the latest build without pushing; compare")
     rc.add_argument("--table", required=True)
+
+    bk = sub.add_parser("backup", help="offsite backup").add_subparsers(dest="cmd", required=True)
+    bk.add_parser("run", help="upload every finished day not backed up yet")
+    bd = bk.add_parser("drill", help="download a few packs at random; compare with the store")
+    bd.add_argument("--seed", type=int, help="seed of the sample (default: today)")
     return ap
 
 
@@ -329,6 +338,7 @@ def _monitor() -> int:
             HubRemote.from_environment(load_toml("storage")["hub"]),
             GitHub.from_environment(),
             datetime.now(UTC),
+            backup.backup_config(),
         )
     except (StoreError, GitHubError) as exc:
         print(f"error: {exc}")
@@ -410,6 +420,33 @@ def _reproduce(args: argparse.Namespace) -> int:
     return _report(found, f"reproduced {len(trials)} trial(s): fingerprints match")
 
 
+def _backup(args: argparse.Namespace) -> int:
+    """Logs carry counts only (decision 0008)."""
+    cfg = backup.backup_config()
+    if not cfg.get("enabled", False):
+        print("backup: disabled in config/backup.toml")
+        return 0
+    hub = load_toml("storage")["hub"]
+    remote, limits = HubRemote.from_environment(hub), Limits.from_config(hub)
+    drive = Drive.from_environment(DriveSettings.from_config(cfg["drive"]))
+    try:
+        with tempfile.TemporaryDirectory(prefix="finresearch-backup-") as tmp:
+            if args.cmd == "run":
+                r = backup.run(cfg, remote, drive, limits, Path(tmp), datetime.now(UTC))
+                print(f"backup: {r.uploaded} uploaded, {r.already} already there, {r.pending} left")
+                return 0
+            now = datetime.now(UTC)
+            seed: int = args.seed if args.seed is not None else int(f"{now:%Y%m%d}")
+            d = backup.drill(cfg, remote, drive, limits, seed)
+    except StoreError as exc:
+        print(f"failed: {exc}")
+        return 1
+    finally:
+        drive.close()
+    print(f"drill (seed {seed}): {d.packs} pack(s), {d.files} file(s), {len(d.mismatched)} differ")
+    return 1 if d.mismatched else 0
+
+
 def _revised(args: argparse.Namespace) -> int:
     """Logs carry counts and verdicts only: the tables are third-party data (decision 0008)."""
     if args.cmd == "plan":
@@ -458,12 +495,16 @@ def main(argv: list[str] | None = None) -> int:
             return _u1(args)
         if args.area == "revised":
             return _revised(args)
+        if args.area == "backup":
+            return _backup(args)
     except (
         RunError,
         collect.CollectError,
         archive.ArchiveError,
         u1.U1Error,
         revised.RevisedError,
+        backup.BackupError,
+        DriveError,
     ) as exc:
         print(f"error: {exc}")
         return 1
