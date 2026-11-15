@@ -1,6 +1,6 @@
 # finresearch-backup 的隐私说明
 
-finresearch-backup 是本仓库所有者为自己建的一个 Google 应用，只供所有者本人使用，用途是异地备份（[决策 0014](decisions/0014-offsite-backup.md)）。
+finresearch-backup 是本仓库所有者为自己建的一个 Google 应用，只供所有者本人使用，用途是异地备份（见 `docs/decisions` 里的决策 0014）。
 
 - **它能访问什么。** 只申请了 `drive.file` 范围：只能看到、修改它自己在所有者 Google Drive 里建的文件（一个名为 `finresearch-backup` 的文件夹和里面的备份包）。所有者 Drive 里的其他文件、邮件、通讯录等，它都看不到。
 - **它存什么。** 只存本仓库录制的市场数据原始文件的备份。不收集、不保存任何人的个人信息。
