@@ -544,6 +544,32 @@ def stored_months(j: Job, remote: Remote) -> list[date]:
     return sorted(date(int(m[1]), int(m[2]), 1) for m in found if m)
 
 
+@dataclass(frozen=True)
+class Summary:
+    """How much of one table from one exchange is in the store: counts and sizes only."""
+
+    table: str
+    exchange: str
+    months: list[date]
+    rows: int
+    inputs: int  # archive files the partitions were built from
+    bytes: int  # partition files and their cards
+
+
+def summary(j: Job, remote: Remote) -> Summary:
+    """Add up the stored partitions of ``j`` from their cards and the store's listing."""
+    root = f"{PARTITION_ROOT}/{j.table}/v{j.format}"
+    sizes = remote.list(root)
+    months, rows, inputs, size = stored_months(j, remote), 0, 0, 0
+    for m in months:
+        folder = month_dir(j.table, j.format, m)
+        card = PartitionCard.from_json(remote.read(f"{folder}/{j.exchange}.json").decode("utf-8"))
+        rows += card.rows
+        inputs += len(card.inputs)
+        size += sum(n for path, n in sizes.items() if path.startswith(f"{folder}/{j.exchange}."))
+    return Summary(j.table, j.exchange, months, rows, inputs, size)
+
+
 @dataclass
 class CrossCheck:
     """A cross-check of klines against trades. The numbers are a quality report
