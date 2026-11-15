@@ -139,6 +139,16 @@ def _check_cards(reg: Registry) -> list[str]:
         problems.extend(
             f"{c.path}: unknown data source {s}" for s in c.card.data if s not in reg.sources
         )
+        need = c.card.data_level
+        if need is None or any(s not in reg.sources for s in c.card.data):
+            continue  # nothing to check, or an unknown source, reported above
+        levels = [reg.sources[s].data_level for s in c.card.data]
+        finest = max((lv.rank for lv in levels if lv is not None), default=0)
+        if finest < need.rank:
+            problems.append(
+                f"{c.path}: the mechanism needs {need} data, the finest listed source is "
+                + (f"L{finest}" if finest else "of no data level")
+            )
     return problems
 
 

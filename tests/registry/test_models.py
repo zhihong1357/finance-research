@@ -60,6 +60,43 @@ def test_plans_cannot_be_looser_than_the_protocol(changes: dict[str, Any], messa
         _plan(**changes)
 
 
+def _without(text: str, *lines: str) -> str:
+    for line in lines:
+        assert line in text
+        text = text.replace(line, "")
+    return text
+
+
+def test_registering_needs_a_horizon_an_embargo_and_a_data_level() -> None:
+    bare = _without(CARD, 'data_level = "L1"\n', "horizon_days = 1\n", "embargo_days = 1\n")
+    assert _card(bare).status is Status.DRAFT  # a draft may leave them out
+    with pytest.raises(
+        ValidationError,
+        match=r"a registered card needs scope\.horizon_days, plan\.embargo_days, data_level",
+    ):
+        _card(registered(bare))
+
+
+def test_the_embargo_covers_the_horizon() -> None:
+    # A 2.5-day horizon needs at least 3 days of embargo.
+    long = CARD.replace("horizon_days = 1", "horizon_days = 2.5")
+    with pytest.raises(ValidationError, match=r"embargo_days \(1\) is shorter than the horizon"):
+        _card(registered(long))
+    assert (
+        _card(registered(long.replace("embargo_days = 1", "embargo_days = 3"))).plan.embargo_days
+        == 3
+    )
+    with pytest.raises(ValidationError):
+        _plan(embargo_days=0)
+
+
+def test_synthetic_data_needs_no_data_level() -> None:
+    synthetic = _without(CARD, 'data_level = "L1"\n').replace(
+        'universe = "U1"', 'universe = "synthetic"'
+    )
+    assert _card(registered(synthetic)).data_level is None
+
+
 def test_a_lower_threshold_with_a_reason_is_allowed() -> None:
     assert _plan(threshold_t=2.8, threshold_reason="clear mechanism, documented").threshold_t == 2.8
 

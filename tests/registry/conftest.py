@@ -25,12 +25,14 @@ why_us = "Daily frequency, small size"
 falsification = "No significant difference in next-day realised volatility on the confirmation set"
 prior = 0.25
 data = ["deribit.book_summary"]
+data_level = "L1"
 power = "d = 0.5, t >= 3, 80% power: about 240 days"
 
 [scope]
 universe = "U1"
 instruments = "BTC perpetual"
 horizon = "1d"
+horizon_days = 1
 output = "volatility"
 
 [plan]
@@ -38,6 +40,7 @@ metric = "difference in next-day realised volatility"
 test = "block bootstrap, block 5 days, two-sided"
 controls = ["DVOL level"]
 robustness = ["threshold +-20%"]
+embargo_days = 1
 
 [plan.exploration]
 start = 2026-10-26
@@ -64,6 +67,7 @@ access = "snapshot"
 redownloadable = false
 event_time = "time of the request"
 available_at = "time of the request"
+data_level = "L1"
 """
 
 REGISTERED_AT = "2026-11-20T00:00:00Z"

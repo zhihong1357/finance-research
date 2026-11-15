@@ -1,5 +1,6 @@
 """Schemas for registry records. Each class validates one kind of record."""
 
+import math
 import re
 from datetime import date, datetime
 from enum import StrEnum
@@ -92,6 +93,23 @@ class ReturnSource(StrEnum):
     NONE = "none"  # meta-research (P0): the subject is the research process, not a market
 
 
+class DataLevel(StrEnum):
+    """How fine-grained a data source is, or how fine the data a mechanism needs (decision 0012).
+
+    L1: aggregates (bars, funding rates, open interest, top-of-book summaries).
+    L2: every trade, and order book snapshots.
+    L3: every change of the full order book.
+    """
+
+    L1 = "L1"
+    L2 = "L2"
+    L3 = "L3"
+
+    @property
+    def rank(self) -> int:
+        return int(self.value[1:])
+
+
 class Output(StrEnum):
     RETURN = "return"  # enters the combined model
     VOLATILITY = "volatility"  # enters the risk model
@@ -119,6 +137,8 @@ class Scope(Strict):
     universe: Universe
     instruments: Text
     horizon: Text
+    # The horizon as a length, for the embargo check; required to register (decision 0012).
+    horizon_days: float | None = Field(default=None, gt=0)
     output: Output
 
 
@@ -152,6 +172,10 @@ class Plan(Strict):
     baseline_model: str = ""
     controls: list[Text] = Field(default_factory=lambda: list[str]())
     robustness: list[Text] = Field(default_factory=lambda: list[str]())
+    # Days at the start of the confirmation and vault segments left out of their tests,
+    # so observations next to the data the model was fitted on do not count as unseen
+    # (decision 0012). Required to register; at least the horizon.
+    embargo_days: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def _protocol(self) -> Self:
@@ -193,6 +217,9 @@ class HypothesisCard(Strict):
     falsification: Text
     prior: float = Field(ge=0.0, le=1.0)
     data: list[SourceId] = Field(default_factory=lambda: list[str]())
+    # The finest data the mechanism needs; the listed sources must reach it (decision 0012).
+    # Required to register, except for synthetic data.
+    data_level: DataLevel | None = None
     power: Text
     plan: Plan
     history: list[HistoryEntry] = Field(min_length=1)
@@ -222,6 +249,27 @@ class HypothesisCard(Strict):
                 raise ValueError(
                     "plan_fingerprint belongs on the registration entry and only there"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _registration_needs(self) -> Self:
+        """What decision 0012 asks of a card before it can be registered."""
+        if not any(e.status is Status.REGISTERED for e in self.history):
+            return self
+        horizon, embargo = self.scope.horizon_days, self.plan.embargo_days
+        missing = [
+            name
+            for name, v in (("scope.horizon_days", horizon), ("plan.embargo_days", embargo))
+            if v is None
+        ]
+        if self.data_level is None and self.scope.universe is not Universe.SYNTHETIC:
+            missing.append("data_level")
+        if missing:
+            raise ValueError(f"a registered card needs {', '.join(missing)}")
+        if horizon is not None and embargo is not None and embargo < math.ceil(horizon):
+            raise ValueError(
+                f"plan.embargo_days ({embargo}) is shorter than the horizon ({horizon} days)"
+            )
         return self
 
     @property
@@ -355,6 +403,8 @@ class Source(Strict):
     rate_limit: str = ""
     terms_url: str = ""
     terms_checked: bool = False
+    # How fine-grained the data is (decision 0012); none for sources that are not market data.
+    data_level: DataLevel | None = None
     known_issues: list[Text] = Field(default_factory=lambda: list[str]())
 
     @model_validator(mode="after")
