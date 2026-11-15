@@ -474,32 +474,38 @@ flowchart LR
 | 快照数据源的大小 | Deribit 每次 6 个请求共约 3.1 MB（USDC 期权约 2 MB、3,200 个合约；BTC 期权约 980 个）；Hyperliquid 每次约 72 KB、235 个永续。从 GitHub Actions 访问 Deribit、OKX、Hyperliquid 都可行（旧仓库的录制） | 2026-11-14 实测 |
 | 中断通知与恢复 | 演练中，故意失败的数据源超过上限后，下一次监控开出问题（[#16](https://github.com/zhihong1357/finance-research/issues/16)，由 github-actions 机器人开）；恢复后下一次监控留言并关闭。同一次采集里另一个数据源照常入库。用 `GITHUB_TOKEN` 请求启用定时任务的调用成功 | 2026-11-13 实测 |
 | 宏观的历史公布版本 | FRED 接口按 `realtime_start`、`realtime_end` 返回历史版本（需要免费注册的 API 密钥），但它的条款禁止存档，见 7.5。费城联储的实时数据集（RTDSM）提供主要宏观变量的全部历史版本下载 | [FRED 文档](https://fred.stlouisfed.org/docs/api/fred/realtime_period.html)；[费城联储](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists) |
+| 2.6 各数据源的公布时间 | SOFR：每个工作日约 8:00（美东）公布前一工作日的利率；当天发现数据有误时约 14:30 修订一次，之后不再修改已公布的值。费城联储实时数据集：每月月底更新，每个版本的全部历史在列头的版本日期公开。CFTC 持仓报告：周二的持仓，通常周五 15:30（美东）公布，已公布的历史不回改；2025 年 10 月 1 日到 11 月 12 日政府停摆期间暂停，9 月 30 日那期原定 10 月 3 日，实际 11 月 19 日才公布 | [纽约联储 SOFR](https://www.newyorkfed.org/markets/reference-rates/sofr)、[修订规则](https://www.newyorkfed.org/markets/reference-rates/additional-information-about-reference-rates)；[费城联储数据页](https://www.philadelphiafed.org/surveys-and-data/real-time-data-research/real-time-data-set-for-macroeconomists)；[CFTC 持仓报告说明](https://www.cftc.gov/MarketReports/CommitmentsOfTraders/index.htm)、[停摆后的补发日程](https://mondovisione.com/media-and-resources/news/cftc-to-resume-publishing-cot-reports-wednesday-the-agency-also-announced-a-c-20251118/)；2026-11-15 读取 |
 
 ### 7.4 尚未核实
 
 原列的五项中，四项已核实（见 7.3 和 7.5）。剩下的在 Phase 2 对应的步骤里查清：
 
 - 用接口启用定时工作流能否重置 60 天的计时。GitHub 文档没有说明，一个步骤之内也无法实测（要等 60 天）。对策是不依赖它：监控在 45 天时开问题提醒所有者，合并任意拉取请求即可（2.2）。
-- 费城联储实时数据集、美国劳工统计局等原始发布机构、CFTC 的使用条款（2.6）。
+- 费城联储实时数据集里"版本日期"的确切含义：数据页说每个版本的全部历史在列头日期公开，但版本日期是快照日还是机构的公布日，要在 2.6.4 读它的说明文件确认。
+- CFTC 持仓报告每一期的实际公布日期。平常是周二的数据、周五公布，但假日和政府停摆会推迟，所以不能按规则推算，要找到历年的公布日程（2.6.5）。
+- Deribit 波动率指数（DVOL）的历史能取到多早、多细，一次请求最多返回多少根（2.6.6）。
 - Bybit 公开归档的专门条款。只找到 Bybit 接口条款，其中禁止把接口用于商业利用（2.4）。
 - Binance 和 Bybit 的实时接口能否从 GitHub Actions 访问。运行器在美国，两家对美国地址可能有限制；实时快照需要时再实测。两家的公开归档从 GitHub Actions 都能访问（2.4 实测，见 7.3），历史数据不受影响。
 
 ### 7.5 数据使用条款
 
-以下摘自各数据源的条款原文（2026-11-13 读取）。这里是事实摘要，不是法律意见。
+以下摘自各数据源的条款原文（2026-11-13 读取；费城联储、美国劳工统计局、CFTC 三行和 Cboe、Deribit 两行里关于 VIX、DVOL 的部分 2026-11-15 读取）。这里是事实摘要，不是法律意见。
 
 | 数据源 | 允许 | 限制 | 对本系统的影响 |
 |---|---|---|---|
 | Binance 公开数据站 | 学术研究、个人非生产用途的历史回测（第 4.1 条）；许可是 CC BY-NC-SA 4.0（第 3.1 条） | 禁止用于实盘的自营交易执行和向他人提供信号（4.2）；禁止商业利用和用于商业产品（4.3、4.4）；由数据得出的模型和指标同样受这些条款约束（2.4）；对外发布的派生作品要注明来源并沿用同一许可（4.5） | 研究可以做。Phase 8 实盘前必须另取许可，因为由这些数据得出的模型也不能用于实盘。对外公开的结果要注明来源 |
 | Bybit | 未找到公开归档的专门条款 | 接口条款禁止商业利用接口（第 6.9 条） | 个人研究不在明文禁止之列（推测，未核实） |
-| Deribit | 市场数据和派生数据只限个人使用（2026-01-26 版会员条款 2.10） | 2021 年加入的条款写明：除个人使用外，未经许可不得汇总、转售、发布或转发市场数据和派生数据 | 可以私下存档和研究；由它得出的结果不能发布到公开仓库 |
-| Cboe 网站（延迟期权链） | 下载一份供个人非商业使用 | 网站条款把"存入电子检索系统"列为需事先书面同意的行为；网站声明内容不是供交易使用的 | 所有者已决定先申请许可，获批前暂停录制（[决策 0009](decisions/0009-cboe-option-chains.md)） |
+| Deribit | 市场数据和派生数据只限个人使用（2026-01-26 版会员条款 2.10） | 2021 年加入的条款写明：除个人使用外，未经许可不得汇总、转售、发布或转发市场数据和派生数据 | 可以私下存档和研究；由它得出的结果不能发布到公开仓库。波动率指数 DVOL 走同一个公开接口，同样适用 |
+| Cboe 网站（延迟期权链、VIX 历史） | 下载一份供个人非商业使用 | 网站条款把"存入电子检索系统"列为需事先书面同意的行为；网站声明内容不是供交易使用的。VIX 的历史文件在同一网站上，同样适用 | 所有者已决定先申请许可，获批前暂停录制（[决策 0009](decisions/0009-cboe-option-chains.md)）。VIX 也等许可，先收 DVOL（2026-11-15 决定） |
 | FRED | 个人、非商业地下载和使用 | 禁止用接口存储、缓存、存档，或把内容并入数据库；禁止用接口的数据训练机器学习模型；禁止批量下载 | 不把 FRED 作为原始层的数据源。宏观的历史版本改从原始发布机构和费城联储实时数据集获取 |
 | 纽约联储（SOFR 等参考利率） | 以人工或自动方式访问；下载、存储、复制、分发、制作派生作品 | 使用或分发参考利率时附上规定的声明 | 可以存档和使用 |
+| 费城联储（实时数据集） | 网站内容可用于信息、教育和研究目的 | 只限这三种目的；有版权的材料要向权利人取得许可；不得过度访问网站；不得把该行的名称用于广告或商业目的。条款没有提到存储或存档 | 研究用途在明文允许之列。原始文件存私有数据集，不进公开仓库；下载限速，不批量反复抓取 |
+| 美国劳工统计局 | 发布的内容属于公有领域，使用无需许可，要求注明来源（图片除外） | 通过它的接口取数时，要写明取数日期和"BLS.gov 不为取回后的数据和分析担保"这句声明；不得使用它的标志 | 可以存档和使用。实时数据集里的劳动力数据来自它，结果引用时注明 |
+| CFTC（持仓报告） | 公有领域的信息可以自由分发和复制 | 要求在使用时注明 CFTC 是来源 | 可以存档和使用 |
 | OKX | 市场数据只用于"你自己的个人、非商业的交易和账户管理"（接口协议第 9.4 条） | 不得转售、转发、发布；不得用于与 OKX 数据业务竞争的产品；不得用自动化手段以超出个人交易需要的规模抓取；不得用于要商业化的机器学习模型 | 研究不在明文允许之列，暂不录制（待决定第 10 项） |
 | Hyperliquid | 未找到针对接口数据的条款（2026-11-14 查过） | — | 作为快照录制；数据源目录里标明条款未核实 |
 
-来源：[Binance Vision 数据集条款](https://data.binance.vision/Binance_Vision-Terms_of_Use.pdf)；[Bybit 接口条款](https://www.bybit.com/common-static/compliance/legal/BYBIT/df1923006718fbba8ba70d7d762b9866.pdf)；[Deribit 会员条款](https://support.deribit.com/hc/en-us/articles/25944532191645-Deribit-Exchange-Membership-Terms-Deribit-FZE)；[Deribit 2021 年条款更新](https://insights.deribit.com/exchange-updates/deribit-updates-terms-of-service-as-of-29-january-2021/)；[Cboe 网站条款](https://www.cboe.com/terms)；[FRED 条款](https://fred.stlouisfed.org/legal/terms/)；[纽约联储条款](https://www.newyorkfed.org/privacy/termsofuse.html)；[OKX 接口协议](https://www.okx.com/en-us/help/okx-api-agreement)（2026-03-26 发布）。
+来源：[Binance Vision 数据集条款](https://data.binance.vision/Binance_Vision-Terms_of_Use.pdf)；[Bybit 接口条款](https://www.bybit.com/common-static/compliance/legal/BYBIT/df1923006718fbba8ba70d7d762b9866.pdf)；[Deribit 会员条款](https://support.deribit.com/hc/en-us/articles/25944532191645-Deribit-Exchange-Membership-Terms-Deribit-FZE)；[Deribit 2021 年条款更新](https://insights.deribit.com/exchange-updates/deribit-updates-terms-of-service-as-of-29-january-2021/)；[Cboe 网站条款](https://www.cboe.com/terms)；[FRED 条款](https://fred.stlouisfed.org/legal/terms/)；[纽约联储条款](https://www.newyorkfed.org/privacy/termsofuse.html)；[OKX 接口协议](https://www.okx.com/en-us/help/okx-api-agreement)（2026-03-26 发布）；[费城联储网站条款](https://www.philadelphiafed.org/about-us/privacy-notice)；[美国劳工统计局版权说明](https://www.bls.gov/opub/copyright-information.htm)、[接口服务条款](https://www.bls.gov/developers/termsOfService.htm)；[CFTC 网站政策](https://www.cftc.gov/webpolicy/index.htm)；[Cboe VIX 历史数据页](https://www.cboe.com/tradable-products/vix/vix-historical-data/)；[Deribit 波动率指数接口](https://docs.deribit.com/api-reference/market-data/public-get_volatility_index_data)。
 
 ## 8. AI 助手的位置
 
