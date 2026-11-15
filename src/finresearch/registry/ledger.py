@@ -16,12 +16,15 @@ from finresearch.core.fingerprint import Fingerprint, canonical_json, digest_byt
 from finresearch.core.provenance import RunManifest
 from finresearch.core.time import ensure_utc
 from finresearch.registry.models import (
+    Boundaries,
+    DateRange,
     DecisionKind,
     OwnerDecision,
     Refusal,
     RefusalKind,
     Segment,
     TrialRecord,
+    Universe,
 )
 
 _NEWLINE = b"\n"
@@ -152,6 +155,34 @@ def append_refusal(
         detail=detail,
         commit=commit,
         dirty=dirty,
+        prev=_head(existing),
+    )
+    _append(path, record.model_dump(mode="json"))
+    return record
+
+
+def append_boundaries(
+    path: Path,
+    *,
+    universe: Universe,
+    exploration: DateRange,
+    confirmation: DateRange,
+    vault: DateRange,
+    decision: str,
+    recorded_at: datetime,
+) -> Boundaries:
+    """Validate and append one universe's segments; returns the record as written."""
+    existing = read_chain(path)
+    if any(r.get("universe") == universe.value for r in existing):
+        raise ChainError(f"{path}: {universe} already has its segments; they never move")
+    record = Boundaries(
+        boundary_id=f"B-{len(existing) + 1:04d}",
+        recorded_at=ensure_utc(recorded_at),
+        universe=universe,
+        exploration=exploration,
+        confirmation=confirmation,
+        vault=vault,
+        decision=decision,
         prev=_head(existing),
     )
     _append(path, record.model_dump(mode="json"))
