@@ -1,6 +1,7 @@
 """Data sources. Each turns raw responses into point-in-time tables."""
 
 from finresearch.sources import (
+    cftc_cot,
     deribit,
     deribit_dvol,
     heartbeat,
@@ -21,5 +22,6 @@ ADAPTERS: dict[str, Adapter] = {
         hyperliquid.ADAPTER,
         nyfed_rates.ADAPTER,
         philly_rtdsm.ADAPTER,
+        cftc_cot.ADAPTER,
     )
 }

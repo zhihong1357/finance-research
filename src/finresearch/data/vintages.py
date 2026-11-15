@@ -47,6 +47,7 @@ FREQUENCY = "frequency"
 VALUE = "value"
 VALUE_SCALE = "value_scale"
 _MONTHS_PER_QUARTER = 3
+_DAY_US = 86_400_000_000
 _TEN = pa.scalar(10, MANTISSA_TYPE)
 
 
@@ -107,6 +108,50 @@ def versions(
                 FREQUENCY: pa.array([frequency.value] * n, type=pa.string()),
                 EVENT_TIME: pa.array([utc(d.year, d.month, d.day) for d in starts], TIME_TYPE),
                 AVAILABLE_AT: pa.array(known, type=TIME_TYPE),
+                INGESTED_AT: pa.array([ensure_utc(ingested_at)] * n, type=TIME_TYPE),
+                VALUE: values.mantissa.cast(MANTISSA_TYPE),
+                VALUE_SCALE: pa.array([values.scale] * n, type=SCALE_TYPE),
+            }
+        ),
+    )
+
+
+def many(
+    name: str,
+    series: Column,
+    frequency: Frequency,
+    starts_us: Column,
+    values: Fixed,
+    available_us: Column,
+    ingested_at: datetime,
+) -> PitTable:
+    """``versions`` for many series at once, as columns (one row per value).
+
+    ``starts_us`` and ``available_us`` are microseconds since the epoch (UTC). Only
+    daily periods: a day ends one day after it starts, which is checked here
+    for every row in one pass.
+    """
+    if frequency is not Frequency.DAY:
+        raise VintageError("many() takes daily periods only")
+    n = len(series)
+    if not (len(starts_us) == len(values) == len(available_us) == n):
+        raise VintageError(f"{name}: columns of different lengths")
+    if values.mantissa.null_count or series.null_count:
+        raise VintageError(f"{name}: a value or series name is missing")
+    starts = starts_us.cast(pa.int64())
+    known = available_us.cast(pa.int64())
+    ends = pc.add(starts, pa.scalar(_DAY_US, pa.int64()))
+    if n and pc.any(pc.less(known, ends)).as_py():
+        raise VintageError(f"{name}: a day's value is public before the day ends")
+    return PitTable(
+        name,
+        KEYS,
+        pa.table(
+            {
+                SERIES: series.cast(pa.string()),
+                FREQUENCY: pa.array([frequency.value] * n, type=pa.string()),
+                EVENT_TIME: starts.cast(TIME_TYPE),
+                AVAILABLE_AT: known.cast(TIME_TYPE),
                 INGESTED_AT: pa.array([ensure_utc(ingested_at)] * n, type=TIME_TYPE),
                 VALUE: values.mantissa.cast(MANTISSA_TYPE),
                 VALUE_SCALE: pa.array([values.scale] * n, type=SCALE_TYPE),

@@ -7,6 +7,9 @@ cron = "17 */8 * * *"           # 每 8 小时，在第 17 分钟（避开整点
 [groups.weekly]
 cron = "41 6 * * 1"             # 每周一 06:41：更新慢的数据源（费城联储的实时数据集每月更新）
 
+[groups.cot]
+cron = "47 20 * * 1,2,5"        # 周一、二、五 20:47 UTC：CFTC 持仓报告 15:30（纽约）公布之后；周一、二接假日顺延的
+
 [groups.daily]
 cron = "53 1 * * *"             # 每天 01:53 UTC
 
@@ -68,6 +71,17 @@ added = "2026-11-16T00:00:00Z"
 enabled = true
 # 变量页面 -> 工作簿文件名。有月度版本的用月度版本（版本多，更接近公布时刻），没有的用季度版本
 files = { routput = "routputMvQd.xlsx", p = "pMvQd.xlsx", pcpi = "pcpiMvMd.xlsx", pcpix = "pcpixMvMd.xlsx", pcon = "pconQvQd.xlsx", pconx = "pconxMvQd.xlsx", ruc = "rucQvMd.xlsx", employ = "employMvMd.xlsx", ipt = "iptMvMd.xlsx" }
+
+[sources."cftc.cot_tff"]
+group = "cot"
+max_age_hours = 80              # 周五到下周一隔 72 小时，加余量
+added = "2026-11-16T00:00:00Z"
+enabled = true
+history_start = "2006-01-01"    # 取全部历史时的起点；金融期货持仓报告从 2006-06-13 起
+lookback_days = 60              # 平常只取最近 60 天
+backfill_days = 7               # 加入后一周内取全部历史
+full_history_months = [1, 4, 7, 10]   # 每季度第一个月的前几天再取一次全部历史，核对旧报告没有被改
+full_history_first_days = 7
 
 [sources."deribit.dvol"]
 group = "daily"
