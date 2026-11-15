@@ -32,6 +32,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,7 @@ from finresearch.data.manifest import (
     read_increment,
     replay,
 )
+from finresearch.data.partitioned import ROOT as PARTITION_ROOT
 from finresearch.data.partitioned import PartitionCard, PartitionWriter, month_dir
 from finresearch.data.store import Limits, PushReport, Remote, local_files, pull, push
 from finresearch.data.table import PitTable, events_between
@@ -407,14 +409,20 @@ def _in_month(t: PitTable, month: date) -> PitTable:
     )
 
 
-def build(
+@dataclass
+class Made:
+    """A partition made locally, not pushed yet."""
+
+    card: PartitionCard
+    from_daily: list[str]  # symbols built from daily files where the archive has monthly ones
+    out: Path  # the folder holding the partition's files
+
+
+def _make(
     j: Job, month: date, remote: Remote, limits: Limits, work: Path, row_group_rows: int
-) -> BuildResult:
-    """Build and push the partition of ``month`` for job ``j``."""
+) -> Made:
+    """Make the partition of ``month`` for job ``j`` from the archive, under ``work``."""
     product = j.product
-    folder = month_dir(j.table, j.format, month)
-    if f"{folder}/{j.exchange}.json" in remote.list(folder):
-        raise U1Error(f"{folder}/{j.exchange} is already in the store; it is never rebuilt")
     monthly, daily, _ = _manifests(j, remote, limits, work / "manifests")
     chosen = select(monthly, daily, j.universe, month, product.edge_days)
     if not chosen.files:
@@ -425,9 +433,7 @@ def build(
     )
     inputs: dict[str, str] = {}
     notes: list[str] = []
-
     empty: list[str] = []
-
     left_out: dict[str, int] = {}
 
     def one(symbol: str) -> tuple[str, PitTable, dict[str, str], list[str], int]:
@@ -458,8 +464,84 @@ def build(
         if j.monthly is not None
         else []
     )
-    pushed = push(out, remote, folder, limits, f"{j.table} {month:%Y-%m} {j.exchange}")
-    return BuildResult(month, card, from_daily, pushed)
+    return Made(card, from_daily, out)
+
+
+def build(
+    j: Job, month: date, remote: Remote, limits: Limits, work: Path, row_group_rows: int
+) -> BuildResult:
+    """Build and push the partition of ``month`` for job ``j``."""
+    folder = month_dir(j.table, j.format, month)
+    if f"{folder}/{j.exchange}.json" in remote.list(folder):
+        raise U1Error(f"{folder}/{j.exchange} is already in the store; it is never rebuilt")
+    made = _make(j, month, remote, limits, work, row_group_rows)
+    pushed = push(made.out, remote, folder, limits, f"{j.table} {month:%Y-%m} {j.exchange}")
+    return BuildResult(month, made.card, made.from_daily, pushed)
+
+
+class Verdict(StrEnum):
+    SAME = "same"  # the rebuilt partition has the stored partition's content fingerprint
+    INPUTS_CHANGED = "inputs changed"  # the archive no longer holds the same files
+    DIFFERENT = "different"  # same inputs, different content: the code changed the result
+
+
+@dataclass(frozen=True)
+class RebuildCheck:
+    month: date
+    verdict: Verdict
+    stored: PartitionCard
+    rebuilt: PartitionCard
+
+    @property
+    def detail(self) -> str:
+        """What differs, in counts only: the cards themselves stay in the private dataset."""
+        s, r = self.stored, self.rebuilt
+        parts = [f"rows {s.rows} -> {r.rows}"] if s.rows != r.rows else []
+        if s.inputs.keys() != r.inputs.keys():
+            gone, new = (
+                len(s.inputs.keys() - r.inputs.keys()),
+                len(r.inputs.keys() - s.inputs.keys()),
+            )
+            parts.append(f"{gone} input file(s) gone, {new} new")
+        changed = sum(1 for u in s.inputs.keys() & r.inputs.keys() if s.inputs[u] != r.inputs[u])
+        if changed:
+            parts.append(f"{changed} input file(s) with other bytes")
+        if s.notes != r.notes:
+            parts.append(f"notes {len(s.notes)} -> {len(r.notes)}")
+        return "; ".join(parts)
+
+
+def rebuild_check(
+    j: Job, month: date, remote: Remote, limits: Limits, work: Path, row_group_rows: int
+) -> RebuildCheck:
+    """Rebuild a stored partition from the archive with the current code; compare, push nothing.
+
+    The rebuilt partition is the same as the stored one when their content
+    fingerprints are equal (the fingerprint does not depend on how the rows
+    were written, docs/architecture.md 2.2). When they differ, the inputs tell
+    why: other archive files, or the same files and other code.
+    """
+    folder = month_dir(j.table, j.format, month)
+    card_path = f"{folder}/{j.exchange}.json"
+    if card_path not in remote.list(folder):
+        raise U1Error(f"{folder}/{j.exchange} is not in the store: nothing to compare with")
+    stored = PartitionCard.from_json(remote.read(card_path).decode("utf-8"))
+    rebuilt = _make(j, month, remote, limits, work, row_group_rows).card
+    if rebuilt.fingerprint == stored.fingerprint:
+        verdict = Verdict.SAME
+    elif rebuilt.inputs != stored.inputs:
+        verdict = Verdict.INPUTS_CHANGED
+    else:
+        verdict = Verdict.DIFFERENT
+    return RebuildCheck(month, verdict, stored, rebuilt)
+
+
+def stored_months(j: Job, remote: Remote) -> list[date]:
+    """The months whose partition of ``j`` is in the store."""
+    root = f"{PARTITION_ROOT}/{j.table}/v{j.format}"
+    card = re.compile(re.escape(root) + r"/(\d{4})-(\d{2})/" + re.escape(j.exchange) + r"\.json")
+    found = (card.fullmatch(path) for path in remote.list(root))
+    return sorted(date(int(m[1]), int(m[2]), 1) for m in found if m)
 
 
 @dataclass
