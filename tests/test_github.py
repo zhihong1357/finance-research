@@ -59,3 +59,31 @@ def test_credentials_come_from_the_environment(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     with pytest.raises(GitHubError, match="GITHUB_TOKEN"):
         GitHub.from_environment()
+
+
+def test_runs_and_dispatch() -> None:
+    seen: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        if request.method == "GET":
+            run = {
+                "display_title": "采集 every4h",
+                "created_at": "2026-11-15T09:01:02Z",
+                "conclusion": None,
+            }
+            return httpx2.Response(200, json={"workflow_runs": [run]})
+        return httpx2.Response(204)
+
+    gh = GitHub("o/r", "t", client=_client(handler))
+    (run,) = gh.runs("collect.yml", utc(2026, 11, 15, 8, 23))
+    assert (run.title, run.created_at, run.conclusion) == (
+        "采集 every4h",
+        utc(2026, 11, 15, 9, 1, 2),
+        None,
+    )
+    assert seen[0].url.path == "/repos/o/r/actions/workflows/collect.yml/runs"
+    assert seen[0].url.params["created"] == ">=2026-11-15T08:23:00Z"
+    gh.dispatch("collect.yml", "main", {"group": "every4h"})
+    assert seen[1].url.path == "/repos/o/r/actions/workflows/collect.yml/dispatches"
+    assert json.loads(seen[1].content) == {"ref": "main", "inputs": {"group": "every4h"}}

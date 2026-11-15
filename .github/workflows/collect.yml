@@ -2,6 +2,8 @@
 # 单独起一个任务。一个数据源失败不影响其他（fail-fast: false）。
 # cron 必须与 config/collect.toml 的 groups 一致，测试会核对。
 name: 采集
+# 标题写明定时组或 cron：补跑（schedules.py）据此判断某个组有没有跑过
+run-name: 采集 ${{ inputs.group || github.event.schedule }}
 
 on:
   schedule:
@@ -29,6 +31,9 @@ jobs:
     name: 列出数据源
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write   # 补跑错过的定时任务
     outputs:
       sources: ${{ steps.plan.outputs.sources }}
     steps:
@@ -41,6 +46,12 @@ jobs:
 
       - name: 安装
         run: uv sync --locked
+
+      - name: 补跑错过的定时任务
+        continue-on-error: true   # 补跑失败不影响这一次采集
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run finresearch schedules catchup
 
       - id: plan
         name: 列出

@@ -1,18 +1,21 @@
-"""The few GitHub REST calls the monitor needs: issues, workflows, last push.
+"""The few GitHub REST calls the monitor needs: issues, workflows, runs, last push.
 
 Inside GitHub Actions the job's own ``GITHUB_TOKEN`` is used, with the
 permissions the workflow grants (``issues: write`` and ``actions: write`` for
-the monitor). Nothing here is used by research code.
+the monitor; ``actions: write`` to start a missed run, ``schedules.py``).
+Nothing here is used by research code.
 """
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 import httpx2
 
-from finresearch.core.time import parse_utc
+from finresearch.core.time import ensure_utc, parse_utc
+from finresearch.schedules import Run
 
 API_VERSION = "2022-11-28"
 _PAGE = 100
@@ -88,6 +91,23 @@ class GitHub:
 
     def enable_workflow(self, workflow_id: int) -> None:
         self._call("PUT", f"/actions/workflows/{workflow_id}/enable")
+
+    def runs(self, workflow: str, since: datetime) -> list[Run]:
+        """Runs of a workflow file (``collect.yml``) created at or after ``since``."""
+        params = {"created": f">={ensure_utc(since):%Y-%m-%dT%H:%M:%SZ}", "per_page": _PAGE}
+        rows = self._call("GET", f"/actions/workflows/{workflow}/runs", params=params)
+        return [
+            Run(
+                str(r.get("display_title") or ""),
+                parse_utc(str(r["created_at"])),
+                r.get("conclusion"),
+            )
+            for r in rows["workflow_runs"]
+        ]
+
+    def dispatch(self, workflow: str, ref: str, inputs: Mapping[str, str]) -> None:
+        body = {"ref": ref, "inputs": dict(inputs)}
+        self._call("POST", f"/actions/workflows/{workflow}/dispatches", json=body)
 
     def pushed_at(self) -> datetime:
         return parse_utc(str(self._call("GET", "")["pushed_at"]))
