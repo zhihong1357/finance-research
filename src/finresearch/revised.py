@@ -94,9 +94,11 @@ def build(s: Spec, remote: Remote, limits: Limits, work: Path, now: datetime) ->
     pull(remote, work, f"raw/{s.source}", limits)
     store = RawStore(work)
     records = store.records(s.source)
-    if not records:
-        raise RevisedError(f"the raw layer has nothing for {s.source}")
     latest = builds.latest_card_path(remote, s.table, s.format, s.part, limits)
+    if not records:
+        if latest is None:  # a new source before its first collection: nothing to build yet
+            return Built(s.table, 0, 0, None, 0)
+        raise RevisedError(f"the raw layer has nothing for {s.source}, but {s.table} was built")
     card = builds.read_card(remote, latest, limits) if latest is not None else None
     if card is not None and card.inputs == _inputs(records):
         # Nothing collected since the latest build: the same responses give the same table.
