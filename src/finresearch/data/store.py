@@ -66,7 +66,7 @@ class Limits:
         )
 
     def wait(self, failures: int, spread: float) -> float:
-        """Seconds before the next try after ``failures`` transient failures; ``spread`` in [0, 1)."""
+        """Seconds to wait after ``failures`` transient failures; ``spread`` is in [0, 1)."""
         base = self.retry_wait_seconds * self.backoff**failures
         return base * (1 + self.jitter * (2 * spread - 1))
 
