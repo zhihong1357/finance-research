@@ -196,3 +196,20 @@ def test_local_files_are_sorted_and_relative(tmp_path: Path) -> None:
     _files(tmp_path, ["b", "a/c"])
     assert local_files(tmp_path, "raw") == ["raw/s/a/c", "raw/s/b"]
     assert local_files(tmp_path, "missing") == []
+
+
+def test_waits_grow_and_spread_so_colliding_jobs_part_ways() -> None:
+    spaced = Limits(2, 4, retries=3, retry_wait_seconds=10.0, backoff=2.0, jitter=0.5)
+    attempts: list[int] = []
+
+    def call() -> str:
+        attempts.append(1)
+        raise TransientStoreError("HTTP 412")
+
+    sleep = Recorder()
+    spreads = iter([0.0, 0.5, 1.0 - 1e-9])
+    with pytest.raises(TransientStoreError):
+        with_retries(call, spaced, sleep, lambda: next(spreads))
+    # 10 x 2^0 at the low end (x 0.5), 10 x 2^1 in the middle, 10 x 2^2 near the top (x 1.5).
+    assert sleep.waits == pytest.approx([5.0, 20.0, 60.0])
+    assert len(attempts) == 4
