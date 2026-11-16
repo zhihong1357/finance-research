@@ -300,3 +300,23 @@ def pq_read(path: Path) -> pa.Table:
     from finresearch.data.partitioned import read_part
 
     return read_part(path)
+
+
+def test_batches_of_contracts_find_what_the_whole_table_finds() -> None:
+    rules = CFG["tables"]["u1.bars_1m"]
+    # Three contracts, each with a planted move and a gap, unsorted on purpose.
+    t = pa.concat_tables(
+        [_bars(symbol=s, n=12, close={6: 15000}, skip={9}) for s in ("CUSDT", "AUSDT", "BUSDT")]
+    )
+
+    def counts(found: list[quality.Finding]) -> list[tuple[str, int, int]]:
+        return [(f.check, f.count, f.total) for f in found]
+
+    whole = counts(quality.bar_findings(t, rules))
+    for size in (1, 2, 3, 10):
+        assert counts(quality.batched(quality.bar_findings, t, rules, size)) == whole
+    found = {
+        f.check: (f.count, f.total) for f in quality.batched(quality.bar_findings, t, rules, 1)
+    }
+    assert found["range: the close moved more than 30% from the row before"] == (6, 30)
+    assert found["gaps: 1-minute steps missing inside a contract's month"] == (3, 36)

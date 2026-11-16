@@ -542,6 +542,7 @@ def _quality(args: argparse.Namespace) -> int:
                 load_toml("quality"),
                 u1.u1_config(),
                 only,
+                lambda line: print(line, flush=True),
             )
     except (StoreError, PartitionError) as exc:
         print(f"failed: {exc}")

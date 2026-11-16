@@ -28,9 +28,10 @@ third-party data, so it is written to the private dataset only; the public log
 carries counts (decision 0008).
 """
 
+import itertools
 import json
 import shutil
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -374,8 +375,51 @@ def check_month(
 
 def part_findings(table: str, part: str, rows: pa.Table, cfg: Mapping[str, Any]) -> list[Finding]:
     rules = dict(cfg["tables"][table])
-    found = [schema_finding(rows.schema, table), *CHECKERS[table](rows, rules)]
+    batch = int(cfg["contracts_per_batch"])
+    found = [schema_finding(rows.schema, table), *batched(CHECKERS[table], rows, rules, batch)]
     return [Finding(f"{part}: {f.check}", f.count, f.total, f.max_share, f.example) for f in found]
+
+
+Checker = Callable[[pa.Table, Mapping[str, Any]], list[Finding]]
+
+
+def batched(
+    checker: Checker, rows: pa.Table, rules: Mapping[str, Any], contracts: int
+) -> list[Finding]:
+    """Run ``checker`` on batches of ``contracts`` contracts and add the counts up.
+
+    Every check looks at one row or at one contract's consecutive rows, so
+    batches cut at contract boundaries find what the whole table would; the
+    copies a check makes are then a batch, not a month of tens of millions of rows.
+    """
+    merged: dict[str, Finding] = {}
+    order: list[str] = []
+    for part in _contract_batches(rows, contracts):
+        for f in checker(part, rules):
+            seen = merged.get(f.check)
+            if seen is None:
+                merged[f.check] = f
+                order.append(f.check)
+            else:
+                example = seen.example or f.example
+                merged[f.check] = Finding(
+                    f.check, seen.count + f.count, seen.total + f.total, f.max_share, example
+                )
+    return [merged[c] for c in order]
+
+
+def _contract_batches(rows: pa.Table, contracts: int) -> list[pa.Table]:
+    """Slices of ``rows`` of whole contracts, at most ``contracts`` each (sorted by contract)."""
+    if rows.num_rows == 0:
+        return [rows]
+    names = rows.column(SYMBOL).combine_chunks()
+    if not pc.all(pc.greater_equal(names[1:], names[:-1])).as_py():
+        rows = rows.sort_by([(SYMBOL, "ascending"), (EVENT_TIME, "ascending")])
+        names = rows.column(SYMBOL).combine_chunks()
+    changes = pc.indices_nonzero(pc.not_equal(names[1:], names[:-1])).to_pylist()
+    starts = [0, *[int(i) + 1 for i in changes if i is not None]]
+    cuts = [*starts[::contracts], rows.num_rows]
+    return [rows.slice(a, b - a) for a, b in itertools.pairwise(cuts)]
 
 
 def across(
@@ -465,6 +509,7 @@ def run(
     cfg: Mapping[str, Any],
     u1: Mapping[str, Any],
     only: date | None = None,
+    progress: Callable[[str], None] = lambda _line: None,
 ) -> Run:
     """Check every stored month of ``table`` (or ``only``); write the reports privately."""
     if table not in CHECKERS:
@@ -496,6 +541,9 @@ def run(
         for f in report.flagged:
             flagged[f.check] = flagged.get(f.check, 0) + 1
         shutil.rmtree(data)  # a month of bars is hundreds of MB; the runner's disk is not
+        progress(
+            f"{table} {m:%Y-%m}: {len(report.findings)} check(s), {len(report.flagged)} flagged"
+        )
         if i % every == 0 or i == len(months):  # a run cut short keeps what it checked
             _push(
                 reports,
