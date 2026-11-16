@@ -1,0 +1,114 @@
+name: 质量检查通知
+
+on:
+  workflow_run:
+    workflows: ["质量检查"]
+    types: [completed]
+
+permissions:
+  issues: write
+
+jobs:
+  notify:
+    name: 发送质量检查提醒
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 开启或关闭提醒
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const { owner, repo } = context.repo;
+            const markerPrefix = "<!-- finresearch:quality-run:";
+            const marker = `${markerPrefix}${run.id}:${run.run_number}:${run.run_attempt} -->`;
+            const failedConclusions = new Set([
+              "failure",
+              "timed_out",
+              "action_required",
+              "startup_failure",
+              "stale",
+            ]);
+
+            async function listIssues(state) {
+              return github.paginate(github.rest.issues.listForRepo, {
+                owner,
+                repo,
+                state,
+                per_page: 100,
+              });
+            }
+
+            if (failedConclusions.has(run.conclusion)) {
+              const issues = await listIssues("all");
+              const existing = issues.find(
+                (issue) =>
+                  !issue.pull_request && issue.body?.includes(marker),
+              );
+
+              if (existing) {
+                core.info(`提醒已存在：#${existing.number}`);
+                return;
+              }
+
+              const body = [
+                "质量检查工作流没有成功完成。",
+                "",
+                `请查看[GitHub Actions 运行记录](${run.html_url})并决定是否需要重跑或修复。`,
+                "",
+                "此提醒只包含工作流状态和运行链接；质量报告与金融数据保存在私有数据集中。",
+                "",
+                marker,
+              ].join("\n");
+
+              const issue = await github.rest.issues.create({
+                owner,
+                repo,
+                title: `质量检查未成功：运行 #${run.run_number}（第 ${run.run_attempt} 次）`,
+                body,
+              });
+              core.notice(`已创建提醒：#${issue.data.number}`);
+              return;
+            }
+
+            if (run.conclusion !== "success") {
+              core.info(`忽略无需提醒的结论：${run.conclusion}`);
+              return;
+            }
+
+            const issues = await listIssues("open");
+            for (const issue of issues) {
+              if (issue.pull_request || !issue.body) continue;
+
+              const match = issue.body.match(
+                /<!-- finresearch:quality-run:(\d+):(\d+):(\d+) -->/,
+              );
+              if (!match) continue;
+
+              const failedRunNumber = Number(match[2]);
+              const failedRunAttempt = Number(match[3]);
+              const superseded =
+                failedRunNumber < run.run_number ||
+                (failedRunNumber === run.run_number &&
+                  failedRunAttempt < run.run_attempt);
+              if (!superseded) continue;
+
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: issue.number,
+                state: "closed",
+                state_reason: "completed",
+              });
+
+              try {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: issue.number,
+                  body: `后续质量检查在[运行 #${run.run_number}](${run.html_url})成功，已自动关闭本提醒。`,
+                });
+              } catch (error) {
+                core.warning(`提醒 #${issue.number} 已关闭，但未能留下成功记录：${error.message}`);
+              }
+              core.info(`已关闭提醒：#${issue.number}`);
+            }

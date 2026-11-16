@@ -5,7 +5,7 @@
 ## 当前交接
 
 - **临时负责 agent：** Codex，暂时代替额度受限的 Claude Code。由所有者决定何时把主责切回 Claude Code。
-- **状态：** 本交接机制通过拉取请求审核合并后，Codex 暂候 Phase 2.3 观察期结束；期间没有活跃的代码任务。
+- **状态：** 质量检查失败提醒已提交至 [PR #80](https://github.com/zhihong1357/finance-research/pull/80)；分支为 `phase-2/quality-check-failure-alert`。检查进度以 PR 页面为准；下一步由所有者审核，并在检查通过后以 Create a merge commit 合并。这项工作不启动采集、不读取金库内容，也不改变 Phase 2 验收状态。
 - **当前路线图关卡：** Phase 2 · 数据平台；剩余验收是 2.3 的 14 天自动采集观察，以及 2.10 两份快照表首个完整月份的重建核验（12 月 3 日后），详见 docs/roadmap.md。
 - **观察窗口：** 2026-11-16 00:00 UTC 至 2026-11-30 00:00 UTC（马来西亚时间于 2026-11-30 08:00 结束），详见 `docs/roadmap.md` 的 Phase 2 验收进度。
 - **观察期内：** 不要手动启动采集；漏跑时允许定时任务自动补跑，手动启动会重置 14 天计数。11 月 30 日后检查自动运行记录并对照验收标准。
@@ -24,3 +24,5 @@
 | 日期（UTC） | Agent | 工作 | 基准提交／PR | 验证 | 下一步 |
 |---|---|---|---|---|---|
 | 2026-11-17 | Codex | 建立 Codex 与 Claude Code 共用的交接说明。 | 基准 `51eed29988990ce43c019d2c09c8e1965dd55a36`；[PR #79](https://github.com/zhihong1357/finance-research/pull/79) | 文档检查；等待 GitHub 检查 | 合并后等待 Phase 2.3 观察期结束并核验自动运行记录；12 月 3 日后核验 2.10 快照重建。两项通过前不开始 Phase 3。 |
+| 2026-11-16 | Codex | 给质量检查增加失败提醒，后续成功运行时自动关闭。 | 基准 `93d94a488e2af1cfb541a78bf0c6d0edcd9179fa`；分支 `phase-2/quality-check-failure-alert`；[PR #80](https://github.com/zhihong1357/finance-research/pull/80) | 未在本地运行检查；等待 PR 自动检查 | 检查 PR 结果；不手动启动采集；Phase 2 两项剩余验收通过前不开始 Phase 3。 |
+| 2026-11-16 | Codex | PR #80 的首次 GitHub CI 检查通过。 | PR #80；提交 `2f2d83d233fe437a5b95750c7f5d677da0810d69` | 检查 #171 成功；未手动启动采集或质量检查 | 等当前 PR 检查完成，再由所有者以 Create a merge commit 合并。 |
