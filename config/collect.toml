@@ -128,4 +128,5 @@ scheduled_workflows = [
   ".github/workflows/revised.yml",
   ".github/workflows/backup.yml",
   ".github/workflows/quality.yml",
+  ".github/workflows/recorded.yml",
 ]

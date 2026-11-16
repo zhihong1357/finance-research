@@ -104,6 +104,8 @@ uv run finresearch u1 verify --table u1.funding --exchange binance --month 2026-
 uv run finresearch revised plan                          # 列出修订版本表（config/revised.toml）
 uv run finresearch revised build --table rates.nyfed     # 由全部原始响应加工一份完整的表，内容变了才推送
 uv run finresearch revised verify --table rates.nyfed    # 用最新一份卡片上的原始响应重新加工，不推送，比对内容指纹
+uv run finresearch recorded build --table deribit.dvol    # 录制类数据：把已结束的月份加工成时点表（每月只写一次）
+uv run finresearch recorded verify --table deribit.dvol   # 从卡片上的原始响应重建，比对内容指纹
 uv run finresearch quality plan                          # 列出要做质量检查的 U1 表
 uv run finresearch quality run --table u1.bars_1m --month 2026-10   # 检查一张表（可只查一个月），报告写进私有数据集
 uv run finresearch profile run --exchange binance        # U1 的数据画像，只读探索集，结果写进私有数据集
