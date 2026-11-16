@@ -14,6 +14,7 @@ makes the commit fail instead of interleaving with it; the push then lists the
 remote again and carries on with whatever is still missing.
 """
 
+import random
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -45,6 +46,11 @@ class Limits:
     # Zero retries, the default, treats a rate limit like any other transient error.
     rate_limit_retries: int = 0
     rate_limit_wait_seconds: float = 0.0
+    # Each further transient failure waits ``backoff`` times longer, and every wait is
+    # spread by up to ``jitter`` of itself either way: jobs that collided on a commit
+    # (412, another commit landed first) then try again at different times.
+    backoff: float = 1.0
+    jitter: float = 0.0
 
     @classmethod
     def from_config(cls, hub: Mapping[str, Any]) -> Limits:
@@ -55,7 +61,14 @@ class Limits:
             float(hub["retry_wait_seconds"]),
             int(hub["rate_limit_retries"]),
             float(hub["rate_limit_wait_seconds"]),
+            float(hub["backoff"]),
+            float(hub["jitter"]),
         )
+
+    def wait(self, failures: int, spread: float) -> float:
+        """Seconds to wait after ``failures`` transient failures; ``spread`` is in [0, 1)."""
+        base = self.retry_wait_seconds * self.backoff**failures
+        return base * (1 + self.jitter * (2 * spread - 1))
 
 
 class Remote(Protocol):
@@ -86,7 +99,12 @@ class Remote(Protocol):
 Sleep = Callable[[float], None]
 
 
-def with_retries[T](fn: Callable[[], T], limits: Limits, sleep: Sleep = time.sleep) -> T:
+def with_retries[T](
+    fn: Callable[[], T],
+    limits: Limits,
+    sleep: Sleep = time.sleep,
+    spread: Callable[[], float] = random.random,
+) -> T:
     """Call ``fn``, waiting and trying again on transient errors.
 
     A rate limit is waited out on its own, longer, budget: the work behind a
@@ -104,13 +122,13 @@ def with_retries[T](fn: Callable[[], T], limits: Limits, sleep: Sleep = time.sle
                 continue
             if failures == limits.retries:
                 raise
+            sleep(limits.wait(failures, spread()))
             failures += 1
-            sleep(limits.retry_wait_seconds)
         except TransientStoreError:
             if failures == limits.retries:
                 raise
+            sleep(limits.wait(failures, spread()))
             failures += 1
-            sleep(limits.retry_wait_seconds)
 
 
 @dataclass
