@@ -384,21 +384,36 @@ class PartitionedTable:
         return Window(latest_versions(table, self.keys, at, single_version=single), used)
 
 
-def read_month(
+def month_parts(
     table: str, fmt: int, month: date, remote: Remote, limits: Limits, local: Path
-) -> dict[str, pa.Table]:
-    """Every part of one month as stored, each checked against its card: part -> rows.
+) -> dict[str, Path]:
+    """Pull one month and check every part against its card: part -> local file.
 
     For the data platform's own checks (``quality.py``), which look at every row
     and every version. Research code reads through the point-in-time door instead.
     """
     folder = month_dir(table, fmt, month)
     pull(remote, local, folder, limits)
-    out: dict[str, pa.Table] = {}
+    out: dict[str, Path] = {}
     for card_path in sorted((local / folder).glob("*.json")):
         card = PartitionCard.from_json(card_path.read_text(encoding="utf-8"))
         data = card_path.with_suffix(".parquet")
         if not data.is_file() or digest_file(data).hex != card.sha256:
             raise PartitionError(f"{card.name}: the file is missing or does not match its card")
-        out[card.part] = pq.read_table(data)
+        out[card.part] = data
     return out
+
+
+def read_part(path: Path, columns: Sequence[str] | None = None) -> pa.Table:
+    """One checked part file (from ``month_parts``), all columns or only ``columns``."""
+    return pq.read_table(path, columns=list(columns) if columns is not None else None)
+
+
+def read_month(
+    table: str, fmt: int, month: date, remote: Remote, limits: Limits, local: Path
+) -> dict[str, pa.Table]:
+    """Every part of one month as stored, each checked against its card: part -> rows."""
+    return {
+        part: read_part(f)
+        for part, f in month_parts(table, fmt, month, remote, limits, local).items()
+    }

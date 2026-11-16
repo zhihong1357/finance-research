@@ -42,7 +42,7 @@ import pyarrow.compute as pc
 from finresearch.core.time import ensure_utc, month_start
 from finresearch.data import bars, funding, mark, open_interest
 from finresearch.data.fixed import Column, Fixed
-from finresearch.data.partitioned import read_month
+from finresearch.data.partitioned import month_parts, read_part
 from finresearch.data.store import Limits, Remote, push
 from finresearch.data.table import EVENT_TIME, PitTable
 
@@ -355,21 +355,91 @@ def check_month(
     marks: Mapping[str, pa.Table] | None = None,
 ) -> Report:
     """All checks of one table and month. ``marks`` (for the bars) adds last price against mark."""
-    rules = dict(cfg["tables"][table])
     findings: list[Finding] = []
     for part, rows in sorted(parts.items()):
-        for f in [schema_finding(rows.schema, table), *CHECKERS[table](rows, rules)]:
-            findings.append(Finding(f"{part}: {f.check}", f.count, f.total, f.max_share, f.example))
-    if table == bars.NAME and {"binance", "bybit"} <= set(parts):
-        findings.append(cross_exchange(parts["binance"], parts["bybit"], cfg["cross_exchange"]))
-    if table == bars.NAME and marks and "binance" in parts and "binance" in marks:
-        findings.append(last_vs_mark(parts["binance"], marks["binance"], cfg["last_vs_mark"]))
+        findings += part_findings(table, part, rows, cfg)
+    closes = (
+        {p: _closes(r, "close", bars.scale_column("close")) for p, r in parts.items()}
+        if table == bars.NAME
+        else {}
+    )
+    mark_closes = (
+        _closes(marks["binance"], mark.CLOSE, mark.CLOSE_SCALE)
+        if marks and "binance" in marks
+        else None
+    )
+    findings += across(closes, mark_closes, cfg)
     return Report(table, f"{month:%Y-%m}", findings)
 
 
-def report_path(table: str, fmt: int, month: str) -> str:
-    """Where a report goes in the private dataset (it names contracts and times)."""
-    return f"quality/{table}/v{fmt}/{month or 'table'}/report.json"
+def part_findings(table: str, part: str, rows: pa.Table, cfg: Mapping[str, Any]) -> list[Finding]:
+    rules = dict(cfg["tables"][table])
+    found = [schema_finding(rows.schema, table), *CHECKERS[table](rows, rules)]
+    return [Finding(f"{part}: {f.check}", f.count, f.total, f.max_share, f.example) for f in found]
+
+
+def across(
+    closes: Mapping[str, pa.Table], mark_closes: pa.Table | None, cfg: Mapping[str, Any]
+) -> list[Finding]:
+    """The checks across sources, on closes only (``_closes``): exchanges, and last against mark."""
+    out: list[Finding] = []
+    if {"binance", "bybit"} <= set(closes):
+        c = cfg["cross_exchange"]
+        what = "Binance and Bybit 1-minute closes"
+        out.append(
+            apart(
+                closes["binance"],
+                closes["bybit"],
+                float(c["max_gap"]),
+                float(c["max_gap_share"]),
+                what,
+            )
+        )
+    if mark_closes is not None and "binance" in closes:
+        c = cfg["last_vs_mark"]
+        what = "Binance last price and mark price"
+        out.append(
+            apart(
+                closes["binance"], mark_closes, float(c["max_gap"]), float(c["max_gap_share"]), what
+            )
+        )
+    return out
+
+
+def stream_month(
+    table: str,
+    month: date,
+    files: Mapping[str, Path],
+    cfg: Mapping[str, Any],
+    mark_file: Path | None,
+) -> Report:
+    """``check_month`` reading one part at a time, keeping only closes between parts.
+
+    A month of 1-minute bars is tens of millions of rows per exchange; holding
+    both exchanges and the mark prices at once ran a runner out of memory.
+    """
+    findings: list[Finding] = []
+    closes: dict[str, pa.Table] = {}
+    for part, path in sorted(files.items()):
+        rows = read_part(path)
+        findings += part_findings(table, part, rows, cfg)
+        if table == bars.NAME:
+            closes[part] = _closes(rows, "close", bars.scale_column("close"))
+        del rows
+    mark_closes = None
+    if table == bars.NAME and mark_file is not None:
+        cols = [SYMBOL, EVENT_TIME, mark.CLOSE, mark.CLOSE_SCALE]
+        mark_closes = _closes(read_part(mark_file, cols), mark.CLOSE, mark.CLOSE_SCALE)
+    findings += across(closes, mark_closes, cfg)
+    return Report(table, f"{month:%Y-%m}", findings)
+
+
+def report_path(table: str, fmt: int, run_day: date, month: str) -> str:
+    """Where a report goes in the private dataset (it names contracts and times).
+
+    Each run has its own folder: uploads never replace a file already stored.
+    """
+    return f"quality/{table}/v{fmt}/{run_day:%Y-%m-%d}/{month or 'table'}/report.json"
 
 
 def stored_months(table: str, fmt: int, remote: Remote) -> list[date]:
@@ -411,24 +481,51 @@ def run(
     mark_fmt = int(u1["tables"][mark.NAME]["format"])
     flagged: dict[str, int] = {}
     count = 0
-    for m in months:
+    mark_months = set(stored_months(mark.NAME, mark_fmt, remote)) if table == bars.NAME else set()
+    out = work / "reports"
+    every = int(cfg["push_every_months"])
+    for i, m in enumerate(months, start=1):
         data = work / "data"
-        parts = read_month(table, fmt, m, remote, limits, data)
-        marks = None
-        if table == bars.NAME and m in stored_months(mark.NAME, mark_fmt, remote):
-            marks = read_month(mark.NAME, mark_fmt, m, remote, limits, data)
-        report = check_month(table, m, parts, cfg, marks)
+        files = month_parts(table, fmt, m, remote, limits, data)
+        mark_file = None
+        if m in mark_months:
+            mark_file = month_parts(mark.NAME, mark_fmt, m, remote, limits, data).get("binance")
+        report = stream_month(table, m, files, cfg, mark_file)
         reports.append(report)
         count += len(report.findings)
         for f in report.flagged:
             flagged[f.check] = flagged.get(f.check, 0) + 1
         shutil.rmtree(data)  # a month of bars is hundreds of MB; the runner's disk is not
-    out = work / "reports"
+        if i % every == 0 or i == len(months):  # a run cut short keeps what it checked
+            _push(
+                reports,
+                out,
+                fmt,
+                today,
+                remote,
+                limits,
+                f"quality: {table}, {i} of {len(months)} month(s)",
+            )
+            reports = []
+    if reports:
+        _push(reports, out, fmt, today, remote, limits, f"quality: {table}")
+    return Run(table, len(months), count, flagged, fresh)
+
+
+def _push(
+    reports: Sequence[Report],
+    out: Path,
+    fmt: int,
+    day: date,
+    remote: Remote,
+    limits: Limits,
+    message: str,
+) -> None:
+    if out.exists():
+        shutil.rmtree(out)
     for r in reports:
-        local = out / report_path(r.table, fmt, r.month)
+        local = out / report_path(r.table, fmt, day, r.month)
         local.parent.mkdir(parents=True, exist_ok=True)
         local.write_text(r.to_json(), encoding="utf-8")
-    push(
-        out, remote, f"quality/{table}/v{fmt}", limits, f"quality: {table}, {len(months)} month(s)"
-    )
-    return Run(table, len(months), count, flagged, fresh)
+    table = reports[0].table
+    push(out, remote, f"quality/{table}/v{fmt}", limits, message)
