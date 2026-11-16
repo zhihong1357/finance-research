@@ -64,6 +64,7 @@ class Finding:
     total: int  # rows looked at
     max_share: float
     example: str = ""  # the first row found: contract and time (private report only)
+    top: tuple[tuple[str, int], ...] = ()  # the contracts found most often (private report only)
 
     @property
     def flagged(self) -> bool:
@@ -266,6 +267,13 @@ def open_interest_findings(t: pa.Table, cfg: Mapping[str, Any]) -> list[Finding]
 
 
 def _closes(table: pa.Table, name: str, scale: str) -> pa.Table:
+    """(contract, minute, value), keeping only minutes with trades when the table counts them.
+
+    A minute without a trade repeats the last price, which goes stale while the
+    other source moves; comparing it says nothing about either source.
+    """
+    if bars.TRADES in table.column_names:
+        table = table.filter(pc.greater(table.column(bars.TRADES), pa.scalar(0, pa.int64())))
     return pa.table(
         {
             SYMBOL: table.column(SYMBOL),
@@ -285,7 +293,22 @@ def apart(left: pa.Table, right: pa.Table, max_gap: float, max_share: float, wha
         return Finding(check, 0, 0, max_share)
     both = _sorted(both)
     gap = pc.abs(pc.subtract(pc.divide(both.column("x"), both.column("y")), pa.scalar(1.0)))
-    return _finding(check, both, pc.greater(gap, pa.scalar(max_gap)), both.num_rows, max_share)
+    mask = pc.greater(gap, pa.scalar(max_gap))
+    f = _finding(check, both, mask, both.num_rows, max_share)
+    return Finding(f.check, f.count, f.total, f.max_share, f.example, _top(both, mask))
+
+
+_TOP = 5
+
+
+def _top(table: pa.Table, mask: Column) -> tuple[tuple[str, int], ...]:
+    """The contracts with the most rows found, and how many."""
+    found = table.filter(pc.fill_null(mask, pa.scalar(False)))
+    if found.num_rows == 0:
+        return ()
+    counts = found.group_by(SYMBOL).aggregate([([], "count_all")])
+    rows = sorted(counts.to_pylist(), key=lambda r: (-r["count_all"], r[SYMBOL]))[:_TOP]
+    return tuple((str(r[SYMBOL]), int(r["count_all"])) for r in rows)
 
 
 def cross_exchange(binance: pa.Table, bybit: pa.Table, cfg: Mapping[str, Any]) -> Finding:
@@ -374,7 +397,8 @@ def check_month(
 
 
 def part_findings(table: str, part: str, rows: pa.Table, cfg: Mapping[str, Any]) -> list[Finding]:
-    rules = dict(cfg["tables"][table])
+    rules = {k: v for k, v in dict(cfg["tables"][table]).items() if k != "parts"}
+    rules |= dict(cfg["tables"][table].get("parts", {}).get(part, {}))  # a part's own limits
     batch = int(cfg["contracts_per_batch"])
     found = [schema_finding(rows.schema, table), *batched(CHECKERS[table], rows, rules, batch)]
     return [Finding(f"{part}: {f.check}", f.count, f.total, f.max_share, f.example) for f in found]

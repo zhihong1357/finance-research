@@ -8,7 +8,12 @@ push_every_months = 12      # 每检查完这么多个月就把报告推上去�
 max_move = 0.30               # 一分钟收盘价相对上一分钟变动超过 30%
 max_move_share = 0.00001      # 超过十万分之一的分钟就标记
 max_impossible_share = 0.000001   # 不可能的 K 线（最高价低于收盘价等）超过百万分之一就标记
-max_gap_share = 0.01          # 一个合约当月第一根到最后一根之间缺的分钟超过 1%。Bybit 由逐笔成交算出，没成交的分钟本来就没有，所以它的比例会高
+max_gap_share = 0.01          # 一个合约当月第一根到最后一根之间缺的分钟超过 1%
+
+[tables."u1.bars_1m".parts.bybit]
+# Bybit 的 1 分钟数据由逐笔成交算出，没成交的分钟本来就没有：2023-06 缺了 27%（2026-11-16 第一次全量检查），
+# 83 个月里 79 个月超过 1%。按 1% 标记只是噪声；超过一半才标记，留着发现整段数据丢失
+max_gap_share = 0.5
 
 [tables."u1.mark_1m"]
 max_move = 0.30
@@ -23,10 +28,10 @@ max_off_hour_share = 0.0
 [tables."u1.open_interest_5m"]
 max_gap_share = 0.01
 
-[cross_exchange]              # 同一合约同一分钟，Binance 和 Bybit 的收盘价
+[cross_exchange]              # 同一合约同一分钟、两边都有成交时，Binance 和 Bybit 的收盘价
 max_gap = 0.01                # 相差超过 1%
 max_gap_share = 0.001         # 超过千分之一的分钟就标记
 
-[last_vs_mark]                # 同一合约同一分钟，Binance 的最新成交价和标记价格
+[last_vs_mark]                # 同一合约同一分钟、有成交时，Binance 的最新成交价和标记价格
 max_gap = 0.02
 max_gap_share = 0.001
