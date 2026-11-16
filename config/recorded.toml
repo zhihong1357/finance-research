@@ -1,0 +1,28 @@
+# 录制类数据的规范层（Phase 2.10，src/finresearch/recorded.py）：原始层的每个响应解析一次，按 event_time 分进月份，
+# 月份结束、再过 settle_days 天后写一次，以后不再改。卡片列出用到的每个响应，重建核对只用它们。
+
+row_group_rows = 200000
+
+[tables."deribit.book_summary"]
+source = "deribit.book_summary"
+format = 1
+part = "deribit"
+first = "2026-11-01"      # 开始录制的月份
+settle_days = 2
+whole_raw = false         # 快照的行都在抓取的那个月：只拉那个月的原始响应
+
+[tables."hyperliquid.asset_ctxs"]
+source = "hyperliquid.asset_ctxs"
+format = 1
+part = "hyperliquid"
+first = "2026-11-01"
+settle_days = 2
+whole_raw = false
+
+[tables."deribit.dvol"]
+source = "deribit.dvol"
+format = 1
+part = "deribit"
+first = "2021-03-01"      # 小时 K 线的历史从 2021 年 3 月起（补录时取到）
+settle_days = 3           # 平常取最近 2 天：一个月最后的 K 线最晚在下个月第 2 天才抓到
+whole_raw = true          # 补录的响应里有好几年前的 K 线：要看全部原始响应

@@ -17,3 +17,6 @@ inputs = { mode = "run" }
 [workflows."archive.yml"]
 
 [workflows."quality.yml"]
+
+[workflows."recorded.yml"]
+inputs = { mode = "build" }

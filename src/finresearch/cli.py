@@ -14,6 +14,7 @@
     or download a few packs and compare them with the remote store
 ``finresearch revised build | verify``  tables of revised series (decision 0013): build
     one from every collected response, or rebuild the latest build and compare
+``finresearch recorded plan | build | verify``  canonical layer of recorded data (2.10)
 ``finresearch quality plan | run``  quality checks of U1 (2.7): report every month privately
 ``finresearch profile run --exchange binance``  data profile of U1 (2.8), exploration only
 ``finresearch schedules catchup``  start the scheduled runs GitHub missed
@@ -38,6 +39,7 @@ from finresearch import (
     monitor,
     profile,
     quality,
+    recorded,
     revised,
     schedules,
     u1,
@@ -50,6 +52,7 @@ from finresearch.data.gdrive import Settings as DriveSettings
 from finresearch.data.hub import HubRemote
 from finresearch.data.partitioned import PartitionError
 from finresearch.data.pit import AccessRefusedError
+from finresearch.data.raw import RawStoreError
 from finresearch.data.selftest import selftest
 from finresearch.data.store import Limits, StoreError
 from finresearch.data.table import TableError
@@ -166,6 +169,16 @@ def _parser() -> argparse.ArgumentParser:
     bk.add_parser("run", help="upload every finished day not backed up yet")
     bd = bk.add_parser("drill", help="download a few packs at random; compare with the store")
     bd.add_argument("--seed", type=int, help="seed of the sample (default: today)")
+
+    rc = sub.add_parser("recorded", help="canonical layer of recorded data").add_subparsers(
+        dest="cmd", required=True
+    )
+    rc.add_parser("plan", help="print the recorded tables as JSON")
+    rb = rc.add_parser("build", help="write every settled month not stored yet")
+    rb.add_argument("--table", required=True)
+    rv = rc.add_parser("verify", help="build stored months again from their cards and compare")
+    rv.add_argument("--table", required=True)
+    rv.add_argument("--month", help="only this month (YYYY-MM; default: every stored month)")
 
     qa = sub.add_parser("quality", help="quality checks of U1").add_subparsers(
         dest="cmd", required=True
@@ -523,6 +536,43 @@ def _revised(args: argparse.Namespace) -> int:
     return 0 if check.verdict is revised.Verdict.SAME else 1
 
 
+def _recorded(args: argparse.Namespace) -> int:
+    cfg = load_toml("recorded")
+    if args.cmd == "plan":
+        print(json.dumps(sorted(recorded.specs(cfg))))
+        return 0
+    s = recorded.spec(args.table, cfg)
+    rows = int(cfg["row_group_rows"])
+    hub = load_toml("storage")["hub"]
+    remote, limits = HubRemote.from_environment(hub), Limits.from_config(hub)
+    try:
+        with tempfile.TemporaryDirectory(prefix="finresearch-recorded-") as tmp:
+            if args.cmd == "build":
+                b = recorded.build(s, remote, limits, Path(tmp), datetime.now(UTC), rows)
+                print(
+                    f"{s.table}: {b.responses} response(s); "
+                    f"wrote {len(b.months_written)} month(s), {b.pushed} file(s)"
+                )
+                if b.months_waiting:
+                    print(f"{s.table}: not settled yet: {', '.join(b.months_waiting)}")
+                return 0
+            months = (
+                [date.fromisoformat(f"{args.month}-01")]
+                if args.month
+                else sorted(recorded.stored_months(s, remote))
+            )
+            changed = 0
+            for i, m in enumerate(months):
+                result = recorded.verify(s, m, remote, limits, Path(tmp) / str(i), rows)
+                changed += result != "same"
+                print(f"{s.table} {m:%Y-%m}: {result}", flush=True)
+            print(f"{s.table}: {len(months) - changed} of {len(months)} month(s) same")
+            return 0 if changed == 0 else 1
+    except (StoreError, PartitionError, RawStoreError) as exc:
+        print(f"failed: {exc}")
+        return 1
+
+
 def _quality(args: argparse.Namespace) -> int:
     """Logs carry counts only: the reports name contracts and times (decision 0008)."""
     if args.cmd == "plan":
@@ -657,6 +707,8 @@ def main(argv: list[str] | None = None) -> int:
             return _schedules()
         if args.area == "quality":
             return _quality(args)
+        if args.area == "recorded":
+            return _recorded(args)
         if args.area == "profile":
             return _profile(args)
     except (
@@ -668,6 +720,7 @@ def main(argv: list[str] | None = None) -> int:
         backup.BackupError,
         acceptance.AcceptanceError,
         quality.QualityError,
+        recorded.RecordedError,
         profile.ProfileError,
         DriveError,
     ) as exc:
