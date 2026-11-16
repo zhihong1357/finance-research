@@ -9,6 +9,7 @@
 1. `docs/charter.md`：目标和十四条原则。
 2. `docs/roadmap.md`：当前处于哪个阶段，这个阶段的验收标准是什么。
 3. 与手头任务相关的那一篇：`docs/architecture.md`、`docs/protocol.md` 或 `docs/renaissance.md`。
+4. `docs/agent-handoff.md`：当前由哪个 agent 负责、最近进度和下一步。
 
 所有者是初学者，通过 AI 完成开发，不在本地运行任何东西。给所有者的说明用平实的中文，专业词第一次出现时解释，或指向 `docs/glossary.md`。
 
@@ -30,6 +31,8 @@
 - **需要所有者决定的事不要自行决定。** 清单在 `docs/roadmap.md` 末尾。遇到清单之外、改起来代价高的选择，写一条决策记录，状态标为"提议"。
 - **研究产出信号，不产出独立策略。** 信号的价值是它对整体模型的边际贡献（`docs/decisions/0006-single-model.md`）。
 - **发现规程或架构有问题时，提出修订，不要绕过。**
+- **先查交接再接任务。** 每次开始前读 `docs/agent-handoff.md)，检查未合并的拉取请求和相关 GitHub 工作流。Claude Code 和 Codex 轮流工作；同一时刻只让一个 agent 负责一项任务。交接页标记由谁负责时，其他 agent 不要并行接手同一项工作。
+- **记录交接和归属。** 接手、暂停、完成或转交时，更新交接页的当前状态，并在活动记录末尾追加一行。拉取请求说明和提交信息末尾写明 `Agent: Claude Code` 或 `Agent: Codex`；GitHub 的实际提交账号不伪造。仓库文件不会通知另一个闲置的 agent，因此每次开始工作都要重新读取交接页。
 
 ## 约定
 
