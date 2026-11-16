@@ -320,3 +320,38 @@ def test_batches_of_contracts_find_what_the_whole_table_finds() -> None:
     }
     assert found["range: the close moved more than 30% from the row before"] == (6, 30)
     assert found["gaps: 1-minute steps missing inside a contract's month"] == (3, 36)
+
+
+def test_minutes_without_trades_are_left_out_of_the_comparisons() -> None:
+    binance = _bars(n=20)
+    stale = binance.set_column(
+        binance.schema.get_field_index("trades"),
+        "trades",
+        pa.array([0 if i == 9 else 3 for i in range(20)], pa.int64()),
+    )
+    marks = _marks(n=20, close={9: 10500})  # 5% away, but in a minute nobody traded
+    found = quality.last_vs_mark(stale, marks, CFG["last_vs_mark"])
+    assert (found.count, found.total) == (0, 19)
+
+
+def test_comparisons_name_the_contracts_found_most_often() -> None:
+    a = _bars(symbol="AUSDT", n=10)
+    b = _bars(symbol="BUSDT", n=10)
+    left = pa.concat_tables([a, b])
+    right = pa.concat_tables(
+        [
+            _bars("bybit", "AUSDT", n=10, close={1: 10300}),
+            _bars("bybit", "BUSDT", n=10, close={2: 10300, 5: 10300}),
+        ]
+    )
+    found = quality.cross_exchange(left, right, CFG["cross_exchange"])
+    assert found.top == (("BUSDT", 2), ("AUSDT", 1))
+
+
+def test_a_part_can_have_its_own_limits() -> None:
+    cfg = {**CFG, "tables": {**CFG["tables"]}}
+    t = _bars("bybit", n=12, skip={3, 4, 5})  # 3 of 12 minutes missing: 25%
+    bybit = {f.check: f.flagged for f in quality.part_findings(bars.NAME, "bybit", t, cfg)}
+    binance = {f.check: f.flagged for f in quality.part_findings(bars.NAME, "binance", t, cfg)}
+    gap = "gaps: 1-minute steps missing inside a contract's month"
+    assert (bybit[f"bybit: {gap}"], binance[f"binance: {gap}"]) == (False, True)
