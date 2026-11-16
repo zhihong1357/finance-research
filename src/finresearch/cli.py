@@ -563,7 +563,9 @@ def _recorded(args: argparse.Namespace) -> int:
             )
             changed = 0
             for i, m in enumerate(months):
-                result = recorded.verify(s, m, remote, limits, Path(tmp) / str(i), rows)
+                result = recorded.verify(
+                    s, m, remote, limits, Path(tmp) / str(i), rows, Path(tmp) / "raw"
+                )
                 changed += result != "same"
                 print(f"{s.table} {m:%Y-%m}: {result}", flush=True)
             print(f"{s.table}: {len(months) - changed} of {len(months)} month(s) same")

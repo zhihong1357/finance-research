@@ -231,9 +231,19 @@ def build(
 
 
 def verify(
-    s: Spec, month: date, remote: Remote, limits: Limits, work: Path, row_group_rows: int
+    s: Spec,
+    month: date,
+    remote: Remote,
+    limits: Limits,
+    work: Path,
+    row_group_rows: int,
+    raw: Path | None = None,
 ) -> str:
-    """Build a stored month again from the responses on its card: ``same`` or ``changed``."""
+    """Build a stored month again from the responses on its card: ``same`` or ``changed``.
+
+    ``raw`` is a raw layer to reuse across months: a DVOL backfill is on the
+    cards of dozens of months, and is pulled once instead of once a month.
+    """
     folder = month_dir(s.table, s.format, month)
     card_path = f"{folder}/{s.part}.json"
     pull(remote, work / "stored", folder, limits)
@@ -241,9 +251,9 @@ def verify(
     if not local_card.is_file():
         raise RecordedError(f"{s.table} has no partition for {month:%Y-%m}")
     card = PartitionCard.from_json(local_card.read_text(encoding="utf-8"))
-    raw = work / "raw"
-    for path in card.inputs:
-        pull(remote, raw, path.rsplit("/", 1)[0], limits)
+    raw = work / "raw" if raw is None else raw
+    for day in sorted({path.rsplit("/", 1)[0] for path in card.inputs}):  # one pull a day folder
+        pull(remote, raw, day, limits)
     store = RawStore(raw)
     wanted = set(card.inputs)
     records = [r for r in store.records(s.source) if r.path.as_posix() in wanted]
