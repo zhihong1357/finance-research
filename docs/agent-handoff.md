@@ -5,7 +5,7 @@
 ## 当前交接
 
 - **临时负责 agent：** Codex，暂时代替额度受限的 Claude Code。由所有者决定何时把主责切回 Claude Code。
-- **状态：** 质量检查失败提醒已通过 [PR #80](https://github.com/zhihong1357/finance-research/pull/80) 合并（merge commit `27bd71cfb2e896de1d18411cac1e67655289d7d5`）。这项任务已完成，Codex 暂候；由所有者决定何时把主责切回 Claude Code。Phase 2 验收继续按下方时间进行。
+- **状态：** Phase 2 验收总结框架已提交至 [PR #82](https://github.com/zhihong1357/finance-research/pull/82)。PR 页面显示检查与审核状态；合并后继续等待 Phase 2.3 和 2.10 的验收。框架只记录结论，不含私有报告或衍生数据；不改变阶段门槛。
 - **当前路线图关卡：** Phase 2 · 数据平台；剩余验收是 2.3 的 14 天自动采集观察，以及 2.10 两份快照表首个完整月份的重建核验（12 月 3 日后），详见 docs/roadmap.md。
 - **观察窗口：** 2026-11-16 00:00 UTC 至 2026-11-30 00:00 UTC（马来西亚时间于 2026-11-30 08:00 结束），详见 `docs/roadmap.md` 的 Phase 2 验收进度。
 - **观察期内：** 不要手动启动采集；漏跑时允许定时任务自动补跑，手动启动会重置 14 天计数。11 月 30 日后检查自动运行记录并对照验收标准。
@@ -27,3 +27,5 @@
 | 2026-11-16 | Codex | 给质量检查增加失败提醒，后续成功运行时自动关闭。 | 基准 `93d94a488e2af1cfb541a78bf0c6d0edcd9179fa`；分支 `phase-2/quality-check-failure-alert`；[PR #80](https://github.com/zhihong1357/finance-research/pull/80) | 未在本地运行检查；等待 PR 自动检查 | 检查 PR 结果；不手动启动采集；Phase 2 两项剩余验收通过前不开始 Phase 3。 |
 | 2026-11-16 | Codex | PR #80 的首次 GitHub CI 检查通过。 | PR #80；提交 `2f2d83d233fe437a5b95750c7f5d677da0810d69` | 检查 #171 成功；未手动启动采集或质量检查 | 等当前 PR 检查完成，再由所有者以 Create a merge commit 合并。 |
 | 2026-11-16 | Codex | 质量检查失败提醒通过 PR #80 合并。 | 基准 `93d94a488e2af1cfb541a78bf0c6d0edcd9179fa`；merge commit `27bd71cfb2e896de1d18411cac1e67655289d7d5` | PR 检查 #173 通过；未手动启动质量检查或采集 | 等待 Phase 2.3 观察期结束与 Phase 2.10 首个完整月份重建核验；两项通过前不开始 Phase 3。 |
+| 2026-11-16 | Codex | 准备 Phase 2 验收总结框架，只保留结论和待验收项。 | 基准 `5ce59b6164799ca18d5121ddd51b6000d41e9f32`；分支 `phase-2/acceptance-report-skeleton`；PR 待创建 | 文档审阅；未运行本地检查或数据任务 | 完成 PR；Phase 2 验收继续按路线图门槛推进。 |
+| 2026-11-16 | Codex | 为 Phase 2 验收总结框架开 PR #82。 | 基准 `5ce59b6164799ca18d5121ddd51b6000d41e9f32`；[PR #82](https://github.com/zhihong1357/finance-research/pull/82) | 文档审阅；未运行本地检查或数据任务；等待 PR CI | 所有者审核并合并后，等待 Phase 2.3 与 2.10 验收；通过前不开始 Phase 3。 |
