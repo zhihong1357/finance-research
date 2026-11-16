@@ -23,4 +23,4 @@
 
 | 日期（UTC） | Agent | 工作 | 基准提交／PR | 验证 | 下一步 |
 |---|---|---|---|---|---|
-| 2026-11-17 | Codex | 建立 Codex 与 Claude Code 共用的交接说明。 | 基准 `51eed29988990ce43c019d2c09c8e1965dd55a36`；本交接 PR | 文档检查；等待 GitHub 检查 | 合并后等待 Phase 2.3 观察期结束并核验自动运行记录；12 月 3 日后核验 2.10 快照重建。两项通过前不开始 Phase 3。 |
+| 2026-11-17 | Codex | 建立 Codex 与 Claude Code 共用的交接说明。 | 基准 `51eed29988990ce43c019d2c09c8e1965dd55a36`；[PR #79](https://github.com/zhihong1357/finance-research/pull/79) | 文档检查；等待 GitHub 检查 | 合并后等待 Phase 2.3 观察期结束并核验自动运行记录；12 月 3 日后核验 2.10 快照重建。两项通过前不开始 Phase 3。 |
