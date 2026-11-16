@@ -502,12 +502,14 @@ def stream_month(
     return Report(table, f"{month:%Y-%m}", findings)
 
 
-def report_path(table: str, fmt: int, run_day: date, month: str) -> str:
+def report_path(table: str, fmt: int, started: datetime, month: str) -> str:
     """Where a report goes in the private dataset (it names contracts and times).
 
-    Each run has its own folder: uploads never replace a file already stored.
+    Each run has its own folder, named by its start to the second: uploads
+    never replace a file already stored, and a day can have several runs.
     """
-    return f"quality/{table}/v{fmt}/{run_day:%Y-%m-%d}/{month or 'table'}/report.json"
+    run = f"{ensure_utc(started):%Y%m%dT%H%M%SZ}"
+    return f"quality/{table}/v{fmt}/{run}/{month or 'table'}/report.json"
 
 
 def stored_months(table: str, fmt: int, remote: Remote) -> list[date]:
@@ -529,7 +531,7 @@ def run(
     remote: Remote,
     limits: Limits,
     work: Path,
-    today: date,
+    started: datetime,
     cfg: Mapping[str, Any],
     u1: Mapping[str, Any],
     only: date | None = None,
@@ -541,7 +543,7 @@ def run(
     fmt = int(u1["tables"][table]["format"])
     months = stored_months(table, fmt, remote)
     settle = max(int(v["settle_days"]) for v in u1["tables"][table].values() if isinstance(v, dict))
-    fresh = freshness(months, today, settle)
+    fresh = freshness(months, ensure_utc(started).date(), settle)
     reports = [Report(table, "", [fresh])]
     if only is not None:
         if only not in months:
@@ -573,14 +575,14 @@ def run(
                 reports,
                 out,
                 fmt,
-                today,
+                started,
                 remote,
                 limits,
                 f"quality: {table}, {i} of {len(months)} month(s)",
             )
             reports = []
     if reports:
-        _push(reports, out, fmt, today, remote, limits, f"quality: {table}")
+        _push(reports, out, fmt, started, remote, limits, f"quality: {table}")
     return Run(table, len(months), count, flagged, fresh)
 
 
@@ -588,7 +590,7 @@ def _push(
     reports: Sequence[Report],
     out: Path,
     fmt: int,
-    day: date,
+    started: datetime,
     remote: Remote,
     limits: Limits,
     message: str,
@@ -596,7 +598,7 @@ def _push(
     if out.exists():
         shutil.rmtree(out)
     for r in reports:
-        local = out / report_path(r.table, fmt, day, r.month)
+        local = out / report_path(r.table, fmt, started, r.month)
         local.parent.mkdir(parents=True, exist_ok=True)
         local.write_text(r.to_json(), encoding="utf-8")
     table = reports[0].table

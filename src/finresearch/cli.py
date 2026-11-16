@@ -590,7 +590,7 @@ def _quality(args: argparse.Namespace) -> int:
                 remote,
                 limits,
                 Path(tmp),
-                datetime.now(UTC).date(),
+                datetime.now(UTC),
                 load_toml("quality"),
                 u1.u1_config(),
                 only,

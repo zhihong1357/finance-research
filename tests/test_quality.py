@@ -220,15 +220,17 @@ def test_run_checks_each_stored_month_and_reports_privately(tmp_path: Path) -> N
     write_partition(_pit_mark(_marks(n=30)), local, 1, october, "binance", {}, 1000)
     push(local, remote, "canonical", LIMITS, "build")
     u1 = load_toml("u1")
-    r = quality.run(bars.NAME, remote, LIMITS, tmp_path / "work", date(2026, 11, 15), CFG, u1)
+    r = quality.run(
+        bars.NAME, remote, LIMITS, tmp_path / "work", utc(2026, 11, 15, 2, 49, 7), CFG, u1
+    )
     assert (r.table, r.months, r.fresh.flagged) == (bars.NAME, 1, False)
     assert r.flagged == {
         "across sources: Binance and Bybit 1-minute closes more than 1.0% apart": 1
     }
     stored = sorted(remote.list("quality/u1.bars_1m"))
     assert stored == [
-        "quality/u1.bars_1m/v1/2026-11-15/2026-10/report.json",
-        "quality/u1.bars_1m/v1/2026-11-15/table/report.json",
+        "quality/u1.bars_1m/v1/20261115T024907Z/2026-10/report.json",
+        "quality/u1.bars_1m/v1/20261115T024907Z/table/report.json",
     ]
     with pytest.raises(quality.QualityError, match="no partition"):
         quality.run(
@@ -236,7 +238,7 @@ def test_run_checks_each_stored_month_and_reports_privately(tmp_path: Path) -> N
             remote,
             LIMITS,
             tmp_path / "w2",
-            date(2026, 11, 15),
+            utc(2026, 11, 15),
             CFG,
             u1,
             date(2026, 9, 1),
