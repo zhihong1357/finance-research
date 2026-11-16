@@ -227,8 +227,8 @@ def test_run_checks_each_stored_month_and_reports_privately(tmp_path: Path) -> N
     }
     stored = sorted(remote.list("quality/u1.bars_1m"))
     assert stored == [
-        "quality/u1.bars_1m/v1/2026-10/report.json",
-        "quality/u1.bars_1m/v1/table/report.json",
+        "quality/u1.bars_1m/v1/2026-11-15/2026-10/report.json",
+        "quality/u1.bars_1m/v1/2026-11-15/table/report.json",
     ]
     with pytest.raises(quality.QualityError, match="no partition"):
         quality.run(
@@ -262,3 +262,41 @@ def test_a_partition_that_does_not_match_its_card_is_refused(tmp_path: Path) -> 
     push(local, remote, "canonical", LIMITS, "build")
     with pytest.raises(PartitionError, match=card.name):
         read_month(bars.NAME, 1, date(2026, 10, 1), remote, LIMITS, tmp_path / "w")
+
+
+def test_streaming_a_month_finds_what_checking_it_whole_finds(tmp_path: Path) -> None:
+    from finresearch.data.partitioned import month_parts
+
+    remote = DirectoryRemote(tmp_path / "remote")
+    local = tmp_path / "built"
+    october = date(2026, 10, 1)
+    write_partition(_pit(_bars(n=20, close={6: 15000})), local, 1, october, "binance", {}, 1000)
+    write_partition(
+        _pit(_bars("bybit", n=20, close={3: 10300})), local, 1, october, "bybit", {}, 1000
+    )
+    write_partition(
+        _pit_mark(_marks(n=20, close={9: 10500})), local, 1, october, "binance", {}, 1000
+    )
+    push(local, remote, "canonical", LIMITS, "build")
+    files = month_parts(bars.NAME, 1, october, remote, LIMITS, tmp_path / "w")
+    mark_file = month_parts(mark.NAME, 1, october, remote, LIMITS, tmp_path / "w")["binance"]
+    streamed = quality.stream_month(bars.NAME, october, files, CFG, mark_file)
+    whole = quality.check_month(
+        bars.NAME,
+        october,
+        {p: pq_read(f) for p, f in files.items()},
+        CFG,
+        {"binance": pq_read(mark_file)},
+    )
+    assert streamed == whole
+    assert {f.check for f in streamed.flagged} == {
+        "binance: range: the close moved more than 30% from the row before",
+        "across sources: Binance and Bybit 1-minute closes more than 1.0% apart",
+        "across sources: Binance last price and mark price more than 2.0% apart",
+    }
+
+
+def pq_read(path: Path) -> pa.Table:
+    from finresearch.data.partitioned import read_part
+
+    return read_part(path)
