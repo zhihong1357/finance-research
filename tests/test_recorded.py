@@ -147,3 +147,17 @@ def test_snapshots_build_from_their_own_month_and_read_through_the_door(tmp_path
         "BTC",
         "ETH",
     ]  # the 04:23 snapshot only
+
+
+def test_verify_can_reuse_one_raw_layer_across_months(tmp_path: Path) -> None:
+    remote = DirectoryRemote(tmp_path / "remote")
+    raw = tmp_path / "raw"
+    _save_dvol(raw, utc(2026, 11, 2, 1, 53), [(utc(2026, 9, 15), 50), (utc(2026, 10, 31, 23), 52)])
+    push(raw, remote, "raw", LIMITS, "collect")
+    recorded.build(DVOL, remote, LIMITS, tmp_path / "w1", utc(2026, 11, 5), ROWS)
+    shared = tmp_path / "shared"
+    for i, month in enumerate((date(2026, 9, 1), date(2026, 10, 1))):
+        assert (
+            recorded.verify(DVOL, month, remote, LIMITS, tmp_path / f"v{i}", ROWS, shared) == "same"
+        )
+    assert len(list(shared.rglob("*.json.gz"))) == 1  # pulled once, used for both months
