@@ -5,8 +5,8 @@
 ## 当前交接
 
 - **负责 agent：** Claude Code（2026-11-18 起，所有者决定由 Claude Code 恢复主责）。Codex 在 Claude Code 额度用完时临时顶替；顶替前先读下面"Codex 顶替时"一节。
-- **当前任务：** Phase 3.8 功效计算（`src/finresearch/stats/power.py`，只用标准库）。分支 `claude/blissful-goodall-b5rewq`，基准 `e38b4ea80b9dab40fa20bfd4a89150adba21d177`，[PR #90](https://github.com/zhihong1357/finance-research/pull/90)。3.6a 已随 [PR #89](https://github.com/zhihong1357/finance-research/pull/89) 合并。
-- **下一步：** 合并后做 3.9 判定函数：等待期间只用标准库的最后一步。之后到 12-04 Phase 2 验收为止，没有可做的 Phase 3 步骤（其余要 numpy 或要读数据集）。3.1b 的草稿（numpy、随机流）只在 Claude Code 的会话里，不在仓库；12-04 之后重做或取回都可以，做法见路线图 3.1b。
+- **当前任务：** Phase 3.9 判定函数（`src/finresearch/verdict.py`）。分支 `claude/blissful-goodall-b5rewq`，基准 `3660228264032484d9b1672d141669a7275a7a72`，拉取请求待创建。3.8 已随 [PR #90](https://github.com/zhihong1357/finance-research/pull/90) 合并。
+- **下一步：** 3.9 合并后，Phase 2 等待期间能做的 Phase 3 步骤（3.1a、3.2、3.5、3.6a、3.8、3.9）就全部做完了。其余步骤要 numpy（3.1b 之后）或要读数据集，按决策 0017 等 Phase 2 两项验收通过。下一件事是 11-30 01:00 UTC 的定时核对（2.3），然后 12-04 10:00 UTC（2.10）；两项都通过后先做 3.1b。3.1b 的草稿（numpy、随机流）只在 Claude Code 的会话里，不在仓库；重做或取回都可以，做法见路线图 3.1b。
 - **当前路线图关卡：** Phase 2 剩余两项被动验收，Phase 3 按决策 0017 并行。
   - **2.3 观察窗口：** 2026-11-16 00:00 UTC 至 2026-11-30 00:00 UTC（马来西亚时间 11-30 08:00 结束）。窗口内不手动启动采集；补跑由系统自己启动，不算人工干预。11-16 08:39 UTC 有一次 DVOL 采集失败在"采集并推送"一步，当天更早和次日的运行都成功、没有开出中断问题；原因未查，11-30 验收时确认当天没有缺数据。
   - **2.10：** 工作流"录制类规范层"2026-12-04 06:19 UTC 写入 11 月；之后做重建核对，内容指纹一致才算通过。
@@ -53,3 +53,4 @@
 | 2026-11-18 | Claude Code | 为 3.6a 开 PR #89（草稿）。 | 基准 `68264cdf475cc980da27087a411cc8b88495cd19`；[PR #89](https://github.com/zhihong1357/finance-research/pull/89) | 本地检查已过；等待 PR 的 CI | 所有者审核后以合并提交合并；之后做 3.8。 |
 | 2026-11-18 | Claude Code | 3.6a 随 PR #89 合并。做 3.8：夏普和两组比较的功效与所需数据量，相依数据按长期方差放大系数折算（AR(1)、重叠标签）。核对了规程第 2 节假说卡示例的"约需 240 天"（算出每组 119、共 238）。三个蒙特卡洛对照都在 99% 区间内；忽略相依性时的功效被判为不符。 | 基准 `e38b4ea80b9dab40fa20bfd4a89150adba21d177`；分支 `claude/blissful-goodall-b5rewq`；拉取请求待创建 | 本地跑了 ruff、pyright、pytest（830 个通过）；只新增文件和改文档；未启动任何工作流 | 合并后做 3.9。 |
 | 2026-11-18 | Claude Code | 为 3.8 开 PR #90（草稿）。 | 基准 `e38b4ea80b9dab40fa20bfd4a89150adba21d177`；[PR #90](https://github.com/zhihong1357/finance-research/pull/90) | 本地检查已过；等待 PR 的 CI | 所有者审核后以合并提交合并；之后做 3.9。 |
+| 2026-11-18 | Claude Code | 3.8 随 PR #90 合并。做 3.9：把规程第 5 节的七项检验写成一个判定函数（t、折损夏普、回测过拟合概率、成本加倍、去掉最好的 2 笔、参数扰动、分段），阈值取自假说卡；不适用的检验明确标出，不当作通过。 | 基准 `3660228264032484d9b1672d141669a7275a7a72`；分支 `claude/blissful-goodall-b5rewq`；拉取请求待创建 | 本地跑了 ruff、pyright、pytest（846 个通过）；只新增文件和改文档；未启动任何工作流 | 合并后等 11-30 和 12-04 的定时核对。 |
