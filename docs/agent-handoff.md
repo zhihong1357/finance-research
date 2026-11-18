@@ -5,7 +5,7 @@
 ## 当前交接
 
 - **负责 agent：** Claude Code（2026-11-18 起，所有者决定由 Claude Code 恢复主责）。Codex 在 Claude Code 额度用完时临时顶替；顶替前先读下面"Codex 顶替时"一节。
-- **当前任务：** Phase 3 的 3.0 开工核实与拆分（[路线图](roadmap.md) Phase 3 的步骤表）。分支 `claude/blissful-goodall-b5rewq`，基准 `d0b16f90a532517248ec17780c8f40121b4781e2`，拉取请求待创建。决策 0017 已随 [PR #83](https://github.com/zhihong1357/finance-research/pull/83) 合并。
+- **当前任务：** Phase 3 的 3.0 开工核实与拆分（[路线图](roadmap.md) Phase 3 的步骤表）。分支 `claude/blissful-goodall-b5rewq`，基准 `d0b16f90a532517248ec17780c8f40121b4781e2`，[PR #84](https://github.com/zhihong1357/finance-research/pull/84)。决策 0017 已随 [PR #83](https://github.com/zhihong1357/finance-research/pull/83) 合并。
 - **下一步：** 合并后做 3.1 数值底座（加入 numpy；验收看 `uv.lock` 只新增包、细线重现指纹不变）。3.1 至 3.12 在 Phase 2 等待期间做；3.13 至 3.17 等 Phase 2 两项验收通过。路线图"需要所有者决定的事"新增第 12 项（元研究的名义水平，3.12 出结果之前定）和第 13 项（阳性对照改用 DVOL 及其三段边界，3.15 之前定）。
 - **当前路线图关卡：** Phase 2 剩余两项被动验收，Phase 3 按决策 0017 并行。
   - **2.3 观察窗口：** 2026-11-16 00:00 UTC 至 2026-11-30 00:00 UTC（马来西亚时间 11-30 08:00 结束）。窗口内不手动启动采集；补跑由系统自己启动，不算人工干预。11-16 08:39 UTC 有一次 DVOL 采集失败在"采集并推送"一步，当天更早和次日的运行都成功、没有开出中断问题；原因未查，11-30 验收时确认当天没有缺数据。
@@ -40,3 +40,4 @@
 | 2026-11-18 | Claude Code | 所有者决定由 Claude Code 恢复主责；起草并采纳决策 0017：Phase 3 在 Phase 2 等待验收期间开工，附五条不影响验收的约束。核对了 11-16 以来的采集记录：窗口内没有人手动启动采集，补跑都由系统启动；11-16 有一次 DVOL 失败后自行恢复。 | 基准 `01e91198caae8d0a2b9ac1100c485c75a8f3b01b`；分支 `claude/blissful-goodall-b5rewq`；拉取请求待创建 | 本地跑了 ruff、pyright、pytest；未启动任何工作流 | 所有者合并后开始 Phase 3 的开工核实与拆分；11-30 核对 2.3，12-04 核对 2.10。 |
 | 2026-11-18 | Claude Code | 为决策 0017 开 PR #83（草稿）。 | 基准 `01e91198caae8d0a2b9ac1100c485c75a8f3b01b`；[PR #83](https://github.com/zhihong1357/finance-research/pull/83) | 本地检查已过；等待 PR 的 CI | 所有者审核后以合并提交合并；之后开始 Phase 3 的开工核实与拆分。 |
 | 2026-11-18 | Claude Code | 决策 0017 随 PR #83 合并。开始 Phase 3 的 3.0：核对本阶段要用的文献出版信息，把 Phase 3 拆成 3.0 至 3.17，标出哪些在 Phase 2 等待期间做；路线图新增两项待所有者决定的事；术语表补了元研究用到的词。 | 基准 `d0b16f90a532517248ec17780c8f40121b4781e2`；分支 `claude/blissful-goodall-b5rewq`；拉取请求待创建 | 本地跑了 ruff、pyright、pytest；只改文档；未启动任何工作流 | 合并后做 3.1 数值底座。 |
+| 2026-11-18 | Claude Code | 为 3.0 开 PR #84（草稿）。 | 基准 `d0b16f90a532517248ec17780c8f40121b4781e2`；[PR #84](https://github.com/zhihong1357/finance-research/pull/84) | 本地检查已过；等待 PR 的 CI | 所有者审核后以合并提交合并；之后做 3.1 数值底座。 |
