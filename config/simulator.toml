@@ -1,0 +1,13 @@
+# 模拟器的成交规则（Phase 4.3，src/finresearch/sim/engine.py；架构 5.4、决策 0012）。
+
+[conservative]
+# t 时刻做出的决定，最早在 t + 延迟之后开始的第一根 K 线成交。示意值：配合 1 分钟数据，
+# 在一分钟结束时做的决定，跳过紧接着开始的那根，在下一根的开盘价成交。
+latency_seconds = 60
+limit_fill_fraction = 1.0   # 限价单被价格穿过时成交的比例
+impact_multiplier = 1.0
+
+[stress]
+latency_seconds = 120       # 延迟加倍
+limit_fill_fraction = 0.5   # 限价单只成交一半，其余撤单
+impact_multiplier = 2.0     # 冲击成本加倍
