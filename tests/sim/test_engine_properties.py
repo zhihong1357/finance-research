@@ -95,13 +95,15 @@ def test_no_fill_breaks_the_rules(
             assert (f.price, f.liquidity, f.quantity) == (bar.open, Liquidity.TAKER, order.quantity)
         else:
             assert order.limit_price is not None
-            assert f.price == order.limit_price and f.liquidity is Liquidity.MAKER
+            assert f.price == order.limit_price
+            assert f.liquidity is Liquidity.MAKER
             assert (
                 (bar.low < f.price) if order.quantity > 0 else (bar.high > f.price)
             )  # traded through
             assert math.isclose(f.quantity, order.quantity * rules.limit_fill_fraction)
-            assert f.cost.spread == 0.0 and f.cost.impact == 0.0
-        assert f.cost.fee >= 0.0 and f.cost.spread >= 0.0 and f.cost.impact >= 0.0
+            assert f.cost.spread == 0.0
+            assert f.cost.impact == 0.0
+        assert min(f.cost.fee, f.cost.spread, f.cost.impact) >= 0.0
 
 
 @settings(max_examples=200)
