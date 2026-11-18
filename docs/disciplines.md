@@ -241,7 +241,7 @@
 
 ## 参考文献
 
-以下文献凭记忆整理，用于说明每个设计要求的出处。Phase 3 实现相应方法时，逐篇核对原文。
+以下文献凭记忆整理，用于说明每个设计要求的出处。Phase 3 实现相应方法时，逐篇核对原文。Phase 3 要用的几篇已在[路线图](roadmap.md) 3.0 核对了出版信息，结果和来源列在那里。
 
 - Almgren, R. & Chriss, N. (2001). Optimal Execution of Portfolio Transactions. *Journal of Risk*, 3(2).
 - Bailey, D. & López de Prado, M. (2014). The Deflated Sharpe Ratio. *Journal of Portfolio Management*, 40(5).
