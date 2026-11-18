@@ -24,6 +24,7 @@ SRC = ROOT / "src" / "finresearch"
 ADDED_DURING_THE_WAIT = (
     "finresearch.meta",
     "finresearch.meta.noise",
+    "finresearch.meta.planted",
     "finresearch.model",
     "finresearch.model.signal",
     "finresearch.signals",
