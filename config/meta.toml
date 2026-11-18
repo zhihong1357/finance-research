@@ -22,6 +22,7 @@ persistence = 0.9        # 特征的 AR(1) 持续性
 segments = 4             # 分段检验的子时期数
 pbo_partitions = 16      # 回测过拟合概率的切分段数 S
 onc_restarts = 10        # ONC 每个 k 的 k 均值重启次数
+maximum_draws = 10000    # 模拟"没有优势时最好那个"的抽样次数（决策 0025）
 
 [costs]
 per_unit_traded = 0.0006 # 每交易 1 个单位总敞口的成本：吃单 0.05% + 半个价差 0.01%（示意，参照 config/costs.toml）

@@ -27,9 +27,10 @@ times the returns of ``t``, less ``cost`` per unit of gross exposure traded.
 - **t**, two ways, both judged: Newey-West with lag ``holding - 1`` on the
   daily P&L, and the ordinary t of non-overlapping returns (one cohort formed
   every ``holding`` days and held ``holding`` days, ``stats.hac``);
-- **deflated Sharpe ratio** of the confirmation P&L, with the effective number
-  of trials from ONC on the exploration P&L of the whole family and the
-  variance of the clusters' Sharpe ratios (3.6a, 3.6b);
+- **deflated Sharpe ratio** of the confirmation P&L: its probabilistic Sharpe
+  ratio against the expected best Sharpe ratio of the family's exploration
+  trials under no edge, simulated from their correlation matrix (decision
+  0025, ``stats.maxima``); ONC still reports how the trials group;
 - **PBO** by CSCV on the family's exploration P&L (3.7);
 - **costs doubled** and **without the best two days**: the mean confirmation
   P&L so changed;
@@ -54,11 +55,12 @@ from typing import Any
 from finresearch.core.config import load_toml
 from finresearch.meta.noise import NoiseModel, generate
 from finresearch.meta.planted import signal_path
-from finresearch.stats.clusters import clustered_sharpe_variance, correlation_matrix, onc
+from finresearch.stats.clusters import correlation_matrix, onc
 from finresearch.stats.hac import newey_west_t, ordinary_t
+from finresearch.stats.maxima import equivalent_trials, null_benchmark
 from finresearch.stats.montecarlo import wilson_interval
 from finresearch.stats.overfitting import Metric, probability_of_overfitting
-from finresearch.stats.sharpe import deflated_sharpe, moments
+from finresearch.stats.sharpe import moments, probabilistic_sharpe
 from finresearch.verdict import Evidence, Thresholds, Verdict, judge
 
 _DROPPED = 2  # "without the best two" (protocol section 5)
@@ -94,6 +96,7 @@ class BenchConfig:
     segments: int
     partitions: int
     restarts: int
+    draws: int
     cost: float
 
     def __post_init__(self) -> None:
@@ -129,6 +132,7 @@ def bench_config(config: Mapping[str, Any] | None = None, **overrides: object) -
         "segments": int(c["segments"]),
         "partitions": int(c["pbo_partitions"]),
         "restarts": int(c["onc_restarts"]),
+        "draws": int(c["maximum_draws"]),
         "cost": float(cfg["costs"]["per_unit_traded"]),
     }
     fields.update(overrides)
@@ -270,7 +274,9 @@ class Trial:
     selected: str  # the variant (or feature) kept in exploration
     selected_index: int
     exploration_sharpe: float
-    effective_trials: int
+    clusters: int  # ONC, describing how the trials group (not used to deflate)
+    equivalent_trials: float  # independent trials with the same expected maximum
+    benchmark: float  # expected best per-period Sharpe ratio under no edge (decision 0025)
     t_newey_west: float
     t_nonoverlapping: float
     dsr: float
@@ -309,10 +315,12 @@ def _confirm(
     rng: random.Random,
     names: list[str],
 ) -> Trial:
-    clustering = onc(correlation_matrix(exploration), rng, cfg.restarts)
-    variance = clustered_sharpe_variance(exploration, clustering)
+    corr = correlation_matrix(exploration)
+    clustering = onc(corr, rng, cfg.restarts)
+    benchmark = null_benchmark(corr, len(exploration[0]), cfg.draws, rng)
     mo = moments(conf_net)
-    dsr = deflated_sharpe(mo.sharpe, mo.n, mo.skew, mo.kurt, clustering.k, variance)
+    dsr = probabilistic_sharpe(mo.sharpe, max(0.0, benchmark.value), mo.n, mo.skew, mo.kurt)
+    equivalent = equivalent_trials(benchmark.value * math.sqrt(len(exploration[0]) - 1))
     usable = len(exploration[0]) - len(exploration[0]) % cfg.partitions
     pbo = probability_of_overfitting(
         [s[len(s) - usable :] for s in exploration], cfg.partitions, Metric.SHARPE
@@ -341,6 +349,8 @@ def _confirm(
         best,
         _sharpe(exploration[best]),
         clustering.k,
+        equivalent,
+        benchmark.value,
         t_nw,
         t_no,
         dsr,

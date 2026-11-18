@@ -107,7 +107,11 @@ def test_the_confirmation_is_a_fresh_test() -> None:
     assert abs(fmean(t)) < 3 / math.sqrt(60)
     assert stdev(t) == pytest.approx(1.0, rel=0.25)
     assert all(r.exploration_sharpe > 0.0 for r in trials)
-    assert all(r.effective_trials >= 2 for r in trials)
+    assert all(r.clusters >= 2 for r in trials)
+    # 2 lookbacks x 2 signs are two mirror pairs: at most as many independent trials as two
+    # independent mirror pairs, 2 / sqrt(pi) = 1.128 in expected maximum, 4.71 trials
+    # (stats.maxima), plus the simulation's error (10,000 draws: about 0.05 trials)
+    assert all(1.0 <= r.equivalent_trials <= 4.9 for r in trials)
 
 
 def test_overlapping_holdings_show_the_newey_west_shortfall() -> None:
