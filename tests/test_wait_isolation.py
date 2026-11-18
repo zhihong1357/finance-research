@@ -22,6 +22,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "finresearch"
 ADDED_DURING_THE_WAIT = (
+    "finresearch.meta",
+    "finresearch.meta.noise",
     "finresearch.model",
     "finresearch.model.signal",
     "finresearch.signals",
@@ -40,7 +42,7 @@ ADDED_DURING_THE_WAIT = (
     "finresearch.stats.snooping",
     "finresearch.verdict",
 )
-THEIR_CONFIG = ("costs", "simulator")  # config/costs.toml, config/simulator.toml
+THEIR_CONFIG = ("costs", "simulator", "noise")  # their files in config/
 
 
 def _module_name(path: Path) -> str:
