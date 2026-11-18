@@ -26,7 +26,7 @@
 ## 工作方式
 
 - **一次只做一个阶段里的一步。** 按 `docs/roadmap.md` 的顺序，不跳步，不提前做后面阶段的事。例外只有下一条，以及 `docs/decisions/0020-later-phases-during-waits.md`：等待验收期间，可以提前做 Phase 4 里不读数据、不依赖 Phase 3 结果的部分，以及 Phase 5 的假说卡草稿（只写草稿，不跑任何运行、不注册）；约束同下一条，另外 Phase 4 不能先于 Phase 3 验收。
-- **Phase 3 可以在 Phase 2 等待验收期间开工，但不能先于它验收。** Phase 2 的 2.3 连续 14 天观察和 2.10 两份快照首个完整月份的重建验收都通过之前，Phase 3 的工作遵守 `docs/decisions/0017-phase-3-during-phase-2-acceptance.md` 的五条约束：不启动 Phase 2 的工作流；只新增文件，不改 `src/`、`config/`、`.github/workflows/` 里已有的文件；不改 `uv.lock` 里已有包的版本；不在 GitHub Actions 上跑读写数据集的任务；Phase 2 任何一项验收没通过时先修 Phase 2，Phase 3 暂停。
+- **Phase 3 可以在 Phase 2 等待验收期间开工，但不能先于它验收。** Phase 2 的 2.3 连续 14 天观察和 2.10 两份快照首个完整月份的重建验收都通过之前，Phase 3 的工作遵守 `docs/decisions/0017-phase-3-during-phase-2-acceptance.md` 的五条约束：不启动 Phase 2 的工作流；只新增文件，不改 `src/`、`config/`、`.github/workflows/` 里已有的文件（例外：等待期间新加、录制流程加载不到的模块和配置，范围由 `tests/test_wait_isolation.py` 划定，见 `docs/decisions/0022-fixes-to-wait-modules.md`）；不改 `uv.lock` 里已有包的版本；不在 GitHub Actions 上跑读写数据集的任务；Phase 2 任何一项验收没通过时先修 Phase 2，Phase 3 暂停。
 - **不手动打断录制观察期。** 当前窗口截至 2026-11-30 00:00 UTC；此前不要手动启动采集。漏跑时允许定时任务自动补跑；手动启动会重置 14 天计数。
 - **先对照验收标准。** 一步完成的标志是验收标准达到，不是代码写完。
 - **改动走拉取请求。** 每个拉取请求只做一件事，说明里写清做了什么、怎样验证的、还有什么没做。
