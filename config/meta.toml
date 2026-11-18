@@ -25,3 +25,12 @@ onc_restarts = 10        # ONC 每个 k 的 k 均值重启次数
 
 [costs]
 per_unit_traded = 0.0006 # 每交易 1 个单位总敞口的成本：吃单 0.05% + 半个价差 0.01%（示意，参照 config/costs.toml）
+
+[dry_run]
+# 纯 Python 小规模预演（决策 0024）：只检查管道和大致趋势，不用于定稿阈值。
+runs = 200               # 噪声上每种设置的模拟假说数
+grid_runs = 25           # 检出率曲线每格的模拟数
+strengths = [0.02, 0.05, 0.1]   # 植入强度（以品种自身波动为单位）
+years = [1, 2, 4, 8]     # 数据长度（年）
+days_per_year = 365      # 加密市场每天交易
+workers = 4              # 并行进程数
