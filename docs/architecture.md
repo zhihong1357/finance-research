@@ -363,7 +363,7 @@ src/finresearch/
   report/      标准报告的格式
 ```
 
-目前已有的是 `core/`、`data/`、`sources/`（只有合成数据源）、`registry/`、`studies/`（只有细线）、`stats/`（相关系数、蒙特卡洛估计、多重检验校正、带清洗和禁区的交叉验证、夏普的推断）、`report/` 和 `runner.py`，其余随后续阶段加入。
+目前已有的是 `core/`、`data/`、`sources/`（只有合成数据源）、`registry/`、`studies/`（只有细线）、`stats/`（相关系数、蒙特卡洛估计、多重检验校正、带清洗和禁区的交叉验证、夏普的推断、功效计算）、`report/` 和 `runner.py`，其余随后续阶段加入。
 
 约定：
 
