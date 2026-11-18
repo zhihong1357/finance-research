@@ -3,11 +3,11 @@
 Outside ``finresearch.data``, code may not read files of data directly, and may
 not call the unclocked internals that ``PointInTime`` wraps.
 
-Studies (``finresearch.studies``) are held to more: a study gets a door and its
-configuration, nothing else. It may not import the rest of the data layer (raw
-files, tables), the data sources (a synthetic source would hand it the truth),
-the run framework or the registry, and it may not touch files, processes or the
-network at all.
+Studies (``finresearch.studies``) and signals (``finresearch.signals``) are held
+to more: one gets a door and its configuration, nothing else. It may not import
+the rest of the data layer (raw files, tables), the data sources (a synthetic
+source would hand it the truth), the run framework or the registry, and it may
+not touch files, processes or the network at all.
 """
 
 import ast
@@ -30,6 +30,7 @@ FORBIDDEN_MODULES = (
     "python_calamine",
 )
 STUDIES_PACKAGE = SRC / "studies"
+SIGNALS_PACKAGE = SRC / "signals"  # held to the same rules (Phase 4.1)
 STUDY_FORBIDDEN = (
     "finresearch.data",
     "finresearch.sources",
@@ -154,4 +155,13 @@ def test_the_study_checker_catches_bypasses() -> None:
     ids=lambda p: p.relative_to(SRC).as_posix(),
 )
 def test_studies_see_only_the_door(module: Path) -> None:
+    assert study_violations(module.read_text(encoding="utf-8")) == []
+
+
+@pytest.mark.parametrize(
+    "module",
+    sorted(SIGNALS_PACKAGE.rglob("*.py")),
+    ids=lambda p: p.relative_to(SRC).as_posix(),
+)
+def test_signals_see_only_the_door(module: Path) -> None:
     assert study_violations(module.read_text(encoding="utf-8")) == []
