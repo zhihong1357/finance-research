@@ -5,7 +5,7 @@
 ## 当前交接
 
 - **负责 agent：** Claude Code（2026-11-18 起，所有者决定由 Claude Code 恢复主责）。Codex 在 Claude Code 额度用完时临时顶替；顶替前先读下面"Codex 顶替时"一节。
-- **当前任务：** Phase 3.5 带清洗和禁区的交叉验证（`src/finresearch/stats/crossval.py`，只用标准库）。分支 `claude/blissful-goodall-b5rewq`，基准 `1fb2dc893e91939d4c8d44875901c977b243ea8d`，拉取请求待创建。3.2 已随 [PR #87](https://github.com/zhihong1357/finance-research/pull/87) 合并。
+- **当前任务：** Phase 3.5 带清洗和禁区的交叉验证（`src/finresearch/stats/crossval.py`，只用标准库）。分支 `claude/blissful-goodall-b5rewq`，基准 `1fb2dc893e91939d4c8d44875901c977b243ea8d`，[PR #88](https://github.com/zhihong1357/finance-research/pull/88)。3.2 已随 [PR #87](https://github.com/zhihong1357/finance-research/pull/87) 合并。
 - **下一步：** 合并后做 3.6a 夏普的推断，然后 3.8、3.9，每步一个拉取请求。3.1b 的草稿（numpy、随机流）只在 Claude Code 的会话里，不在仓库；12-04 之后重做或取回都可以，做法见路线图 3.1b。
 - **当前路线图关卡：** Phase 2 剩余两项被动验收，Phase 3 按决策 0017 并行。
   - **2.3 观察窗口：** 2026-11-16 00:00 UTC 至 2026-11-30 00:00 UTC（马来西亚时间 11-30 08:00 结束）。窗口内不手动启动采集；补跑由系统自己启动，不算人工干预。11-16 08:39 UTC 有一次 DVOL 采集失败在"采集并推送"一步，当天更早和次日的运行都成功、没有开出中断问题；原因未查，11-30 验收时确认当天没有缺数据。
@@ -48,3 +48,4 @@
 | 2026-11-18 | Claude Code | 3.1a 随 PR #86 合并。做 3.2：Holm、Benjamini–Hochberg、Benjamini–Yekutieli 的调整后 p 值；手算例子、性质测试，以及已知真假的合成检验族上的错误率检查（独立和正相关两种情形），另有一个"不校正时检查会报警"的对照。核对了三篇原文的出版信息。 | 基准 `b9e7e9e54c77689e4ad471750f02746ac441d45d`；分支 `claude/blissful-goodall-b5rewq`；拉取请求待创建 | 本地跑了 ruff、pyright、pytest（800 个通过）；只新增文件和改文档；未启动任何工作流 | 合并后做 3.5。 |
 | 2026-11-18 | Claude Code | 为 3.2 开 PR #87（草稿）。 | 基准 `b9e7e9e54c77689e4ad471750f02746ac441d45d`；[PR #87](https://github.com/zhihong1357/finance-research/pull/87) | 本地检查已过；等待 PR 的 CI | 所有者审核后以合并提交合并；之后做 3.5。 |
 | 2026-11-18 | Claude Code | 3.2 随 PR #87 合并。做 3.5：k 折和组合式交叉验证，训练集按标签区间清洗、测试段之后留禁区，组合式的完整回测路径。手算例子之外，在纯噪声、标签重叠的合成数据上验证：不清洗时"预测"显著为正，清洗后与 0 一致。途中发现按单条序列算 t 统计量会因标签重叠而夸大，改为多次独立重复、按重复之间的离散度判断。 | 基准 `1fb2dc893e91939d4c8d44875901c977b243ea8d`；分支 `claude/blissful-goodall-b5rewq`；拉取请求待创建 | 本地跑了 ruff、pyright、pytest（809 个通过）；只新增文件和改文档；未启动任何工作流 | 合并后做 3.6a。 |
+| 2026-11-18 | Claude Code | 为 3.5 开 PR #88（草稿）。 | 基准 `1fb2dc893e91939d4c8d44875901c977b243ea8d`；[PR #88](https://github.com/zhihong1357/finance-research/pull/88) | 本地检查已过；等待 PR 的 CI | 所有者审核后以合并提交合并；之后做 3.6a。 |
