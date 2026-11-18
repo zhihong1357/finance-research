@@ -37,6 +37,7 @@ ADDED_DURING_THE_WAIT = (
     "finresearch.stats.overfitting",
     "finresearch.stats.power",
     "finresearch.stats.sharpe",
+    "finresearch.stats.snooping",
     "finresearch.verdict",
 )
 THEIR_CONFIG = ("costs", "simulator")  # config/costs.toml, config/simulator.toml
