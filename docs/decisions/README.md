@@ -25,3 +25,4 @@
 | [0017](0017-phase-3-during-phase-2-acceptance.md) | Phase 3 在 Phase 2 等待验收期间开工 | 已采纳 |
 | [0018](0018-meta-research-nominal-level.md) | 元研究的名义水平：每一道关对照它自己声称的误报率 | 已采纳 |
 | [0019](0019-dvol-positive-control.md) | 阳性对照 (c) 改用 DVOL，沿用 U1 的三段边界 | 已采纳 |
+| [0020](0020-later-phases-during-waits.md) | 等待期间提前做后续阶段里不依赖待验收结果的部分 | 已采纳 |
