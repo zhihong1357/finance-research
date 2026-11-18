@@ -5,8 +5,8 @@
 ## 当前交接
 
 - **负责 agent：** Claude Code（2026-11-18 起，所有者决定由 Claude Code 恢复主责）。Codex 在 Claude Code 额度用完时临时顶替；顶替前先读下面"Codex 顶替时"一节。
-- **当前任务：** Phase 4.2 成本模型（`src/finresearch/sim/costs.py`、`config/costs.toml`）。分支 `claude/blissful-goodall-b5rewq`，基准 `1e88fe0a8912e6f441cdeb02680f97a670f2205a`，[PR #97](https://github.com/zhihong1357/finance-research/pull/97)。4.1 已随 [PR #96](https://github.com/zhihong1357/finance-research/pull/96) 合并。
-- **下一步：** 合并后按顺序做 4.3 模拟器核心、4.4 容量估计，每步一个拉取请求，都只用标准库、只新增文件、不读真实数据。11-30、12-04 的定时核对照旧；Phase 2 两项都通过后，先做 Phase 3 要 numpy 的步骤（从 3.1b 开始），再回到 Phase 4 剩下的部分。3.1b 的草稿只在 Claude Code 的会话里，不在仓库。
+- **当前任务：** Phase 4.3 模拟器核心（`src/finresearch/sim/engine.py`、`config/simulator.toml`）。分支 `claude/blissful-goodall-b5rewq`，基准 `5b2d5e0dc040369a31ad4e7afd21f4670e359e53`，拉取请求待创建。4.2 已随 [PR #97](https://github.com/zhihong1357/finance-research/pull/97) 合并。
+- **下一步：** 合并后做 4.4 容量估计，每步一个拉取请求，都只用标准库、只新增文件、不读真实数据。11-30、12-04 的定时核对照旧；Phase 2 两项都通过后，先做 Phase 3 要 numpy 的步骤（从 3.1b 开始），再回到 Phase 4 剩下的部分。3.1b 的草稿只在 Claude Code 的会话里，不在仓库。
 - **当前路线图关卡：** Phase 2 剩余两项被动验收，Phase 3 按决策 0017 并行。
   - **2.3 观察窗口：** 2026-11-16 00:00 UTC 至 2026-11-30 00:00 UTC（马来西亚时间 11-30 08:00 结束）。窗口内不手动启动采集；补跑由系统自己启动，不算人工干预。11-16 08:39 UTC 有一次 DVOL 采集失败在"采集并推送"一步，当天更早和次日的运行都成功、没有开出中断问题；原因未查，11-30 验收时确认当天没有缺数据。
   - **2.10：** 工作流"录制类规范层"2026-12-04 06:19 UTC 写入 11 月；之后做重建核对，内容指纹一致才算通过。
@@ -61,3 +61,4 @@
 | 2026-11-18 | Claude Code | 决策 0020 随 PR #94 合并。做 Phase 4.0：拆成 4.0 至 4.9，4.1 至 4.4 在等待期间做；核对了 Bybit、Binance 的手续费、资金费的结算方式和冲击成本的平方根定律。 | 基准 `8f69beae30ab45d54709db5844a353f9972310c6`；[PR #95](https://github.com/zhihong1357/finance-research/pull/95) | 只改文档；未启动任何工作流 | 合并后做 4.1。 |
 | 2026-11-18 | Claude Code | 4.0 随 PR #95 合并。做 4.1：信号的声明和输出；信号只能通过停在决策时刻的时点视图取数据，越界即被拒绝；新的 `signals/` 包和研究受同样的结构检查。 | 基准 `3a8175327fb99121eb6a74bcb9a20e95657cdab7`；[PR #96](https://github.com/zhihong1357/finance-research/pull/96) | 本地跑了 ruff、pyright、pytest（866 个通过）；只新增文件（另扩展了结构测试）和改文档；未启动任何工作流 | 合并后做 4.2。 |
 | 2026-11-18 | Claude Code | 4.1 随 PR #96 合并。做 4.2：手续费（按交易所、挂单和吃单）、半个价差、平方根冲击，零、正常、加倍三种成本情形；资金费按实际现金流计、不随情形缩放。费率放新的配置文件 `config/costs.toml`。 | 基准 `1e88fe0a8912e6f441cdeb02680f97a670f2205a`；[PR #97](https://github.com/zhihong1357/finance-research/pull/97) | 本地跑了 ruff、pyright、pytest（876 个通过）；只新增文件和改文档；未启动任何工作流 | 合并后做 4.3。 |
+| 2026-11-18 | Claude Code | 4.2 随 PR #97 合并。做 4.3：事件驱动的模拟器核心，带延迟的市价单和限价单（必须被价格穿过），保守和压力两种成交情形，资金费在结算时刻按之前的持仓结算，逐笔记账和权益曲线；一次调用得到三种成本情形 × 两种成交情形。手算场景逐笔一致。 | 基准 `5b2d5e0dc040369a31ad4e7afd21f4670e359e53`；分支 `claude/blissful-goodall-b5rewq`；拉取请求待创建 | 本地跑了 ruff、pyright、pytest（886 个通过）；只新增文件和改文档；未启动任何工作流 | 合并后做 4.4。 |
