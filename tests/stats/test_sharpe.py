@@ -62,6 +62,21 @@ def test_expected_max_sharpe_by_hand() -> None:
     assert expected_max_sharpe(100, 0.0) == 0.0
 
 
+def test_one_trial_or_a_few_are_never_deflated_below_none() -> None:
+    # The best of N >= 1 draws is never expected below 0, the value at N = 1. The approximation
+    # turns negative below about 1.29 trials (at 1.2: 0.422784 * -0.967422 + 0.577216 * 0.506080
+    # = -0.117166), so it is floored at 0. N = 2: 0.577216 * Phi^-1(1 - 1 / (2 e)) = 0.577216 *
+    # 0.900453 = 0.519755, a little below the exact 1 / sqrt(pi) = 0.564190.
+    assert expected_max_sharpe(1, 1.0) == 0.0
+    assert expected_max_sharpe(1.2, 1.0) == 0.0
+    assert expected_max_sharpe(2, 1.0) == pytest.approx(0.519755, abs=1e-6)
+    sr, variance = 0.05, 0.002
+    psr = probabilistic_sharpe(sr, 0.0, 500, 0.0, 3.0)
+    for trials in (1.0, 1.01, 1.1, 1.2, 1.28):
+        assert deflated_sharpe(sr, 500, 0.0, 3.0, trials, variance) == psr
+    assert deflated_sharpe(sr, 500, 0.0, 3.0, 1.5, variance) < psr
+
+
 def test_expected_max_sharpe_is_close_to_the_simulated_maximum() -> None:
     # The best of 100 standard normal draws averages about 2.5076; the approximation gives 2.5306.
     rnd = random.Random(20261118)
@@ -96,13 +111,17 @@ def test_invalid_inputs_are_refused() -> None:
     bad_calls = [
         lambda: moments([1.0]),
         lambda: moments([1.0, 1.0, 1.0]),
+        lambda: moments([0.1, 0.1, 0.1]),  # the mean rounds away from 0.1: tested on the inputs
         lambda: moments([1.0, math.nan]),
         lambda: sharpe_standard_error(0.1, 1, 0.0, 3.0),
         lambda: sharpe_standard_error(2.0, 100, 1.0, 1.0),  # 1 - 2 + 0 <= 0
         lambda: min_track_record(0.1, 0.1, 0.0, 3.0, 0.95),
         lambda: min_track_record(0.1, 0.0, 0.0, 3.0, 1.0),
-        lambda: expected_max_sharpe(1, 1.0),
+        lambda: expected_max_sharpe(0.5, 1.0),
+        lambda: expected_max_sharpe(math.nan, 1.0),
+        lambda: expected_max_sharpe(math.inf, 1.0),
         lambda: expected_max_sharpe(10, -1.0),
+        lambda: expected_max_sharpe(10, math.nan),
     ]
     for call in bad_calls:
         with pytest.raises(SharpeError):

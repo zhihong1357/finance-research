@@ -19,6 +19,11 @@ grows, and:
 
 If the edge does not cover the linear costs (``a <= 0``) there is no capacity
 at all: every size loses.
+
+Each trade is counted as its own metaorder, as the simulator does when trades
+alternate direction or come more than a metaorder window apart (``sim.costs``).
+A strategy that builds one position in several same-direction trades within a
+window should count them as one trade of their total size.
 """
 
 import math

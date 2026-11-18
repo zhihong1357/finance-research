@@ -1,3 +1,4 @@
+import math
 from dataclasses import replace
 from datetime import date
 
@@ -115,6 +116,21 @@ def test_unusable_inputs_are_refused() -> None:
     for change in bad_evidence:
         with pytest.raises(VerdictError):
             replace(GOOD, **change)  # type: ignore[arg-type]
-    for t, dsr, pbo in [(0.0, 0.95, 0.1), (3.0, 1.0, 0.1), (3.0, 0.95, 0.0)]:
+    for t, dsr, pbo in [
+        (0.0, 0.95, 0.1),
+        (math.nan, 0.95, 0.1),
+        (3.0, 0.0, 0.1),
+        (3.0, 1.01, 0.1),
+        (3.0, 0.95, -0.01),
+        (3.0, 0.95, 1.0),
+    ]:
         with pytest.raises(VerdictError):
             Thresholds(t, dsr, pbo)
+
+
+def test_the_strictest_bar_a_card_may_choose_is_usable() -> None:
+    # a card may ask for DSR >= 1 and PBO <= 0 (stricter than the defaults is always allowed)
+    strictest = Thresholds.from_plan(plan(dsr_min=1.0, pbo_max=0.0))
+    assert (strictest.dsr_min, strictest.pbo_max) == (1.0, 0.0)
+    assert judge(replace(GOOD, dsr=1.0, pbo=0.0), strictest).passed
+    assert judge(GOOD, strictest).failed == (Check.DSR, Check.PBO)

@@ -23,7 +23,9 @@
 | [0015](0015-u1-segments.md) | U1 的三段边界：按月份 60/25/15，画像只用探索集 | 已采纳 |
 | [0016](0016-u1-breadth.md) | U1 的有效广度按去掉市场因子之后计，保留 U1 | 已采纳 |
 | [0017](0017-phase-3-during-phase-2-acceptance.md) | Phase 3 在 Phase 2 等待验收期间开工 | 已采纳 |
-| [0018](0018-meta-research-nominal-level.md) | 元研究的名义水平：每一道关对照它自己声称的误报率 | 已采纳 |
+| [0018](0018-meta-research-nominal-level.md) | 元研究的名义水平：每一道关对照它自己声称的误报率 | 已采纳（第 3 条的次数由 0023 更正） |
 | [0019](0019-dvol-positive-control.md) | 阳性对照 (c) 改用 DVOL，沿用 U1 的三段边界 | 已采纳 |
 | [0020](0020-later-phases-during-waits.md) | 等待期间提前做后续阶段里不依赖待验收结果的部分 | 已采纳 |
 | [0021](0021-forward-tests.md) | 前向检验：在卡上事先写定窗口，读前向数据不必打开金库 | 已采纳 |
+| [0022](0022-fixes-to-wait-modules.md) | 等待期间新加的模块可以修改：只限录制流程加载不到的那些 | 已采纳 |
+| [0023](0023-meta-research-run-counts.md) | 更正决策 0018 的模拟次数下限：按实际的判定规则精确计算 | 已采纳 |
