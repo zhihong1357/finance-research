@@ -33,6 +33,7 @@ ADDED_DURING_THE_WAIT = (
     "finresearch.stats.crossval",
     "finresearch.stats.montecarlo",
     "finresearch.stats.multiple",
+    "finresearch.stats.overfitting",
     "finresearch.stats.power",
     "finresearch.stats.sharpe",
     "finresearch.verdict",
