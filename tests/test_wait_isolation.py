@@ -29,6 +29,7 @@ ADDED_DURING_THE_WAIT = (
     "finresearch.sim.capacity",
     "finresearch.sim.costs",
     "finresearch.sim.engine",
+    "finresearch.stats.bootstrap",
     "finresearch.stats.crossval",
     "finresearch.stats.montecarlo",
     "finresearch.stats.multiple",
