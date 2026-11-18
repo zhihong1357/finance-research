@@ -5,7 +5,7 @@
 ## 当前交接
 
 - **负责 agent：** Claude Code（2026-11-18 起，所有者决定由 Claude Code 恢复主责）。Codex 在 Claude Code 额度用完时临时顶替；顶替前先读下面"Codex 顶替时"一节。
-- **当前任务：** [决策 0017](decisions/0017-phase-3-during-phase-2-acceptance.md)：Phase 3 在 Phase 2 等待验收期间开工。分支 `claude/blissful-goodall-b5rewq`，基准 `01e91198caae8d0a2b9ac1100c485c75a8f3b01b`，拉取请求待创建。
+- **当前任务：** [决策 0017](decisions/0017-phase-3-during-phase-2-acceptance.md)：Phase 3 在 Phase 2 等待验收期间开工。分支 `claude/blissful-goodall-b5rewq`，基准 `01e91198caae8d0a2b9ac1100c485c75a8f3b01b`，[PR #83](https://github.com/zhihong1357/finance-research/pull/83)。
 - **下一步：** 所有者合并这个拉取请求之后，开始 Phase 3 的第一步"开工核实与拆分"（和 2.0 一样，只写文档：核实路线图 Phase 3 的产出和验收，拆成每步一个拉取请求的小步）。
 - **当前路线图关卡：** Phase 2 剩余两项被动验收，Phase 3 按决策 0017 并行。
   - **2.3 观察窗口：** 2026-11-16 00:00 UTC 至 2026-11-30 00:00 UTC（马来西亚时间 11-30 08:00 结束）。窗口内不手动启动采集；补跑由系统自己启动，不算人工干预。11-16 08:39 UTC 有一次 DVOL 采集失败在"采集并推送"一步，当天更早和次日的运行都成功、没有开出中断问题；原因未查，11-30 验收时确认当天没有缺数据。
@@ -38,3 +38,4 @@
 | 2026-11-16 | Codex | 准备 Phase 2 验收总结框架，只保留结论和待验收项。 | 基准 `5ce59b6164799ca18d5121ddd51b6000d41e9f32`；分支 `phase-2/acceptance-report-skeleton`；PR 待创建 | 文档审阅；未运行本地检查或数据任务 | 完成 PR；Phase 2 验收继续按路线图门槛推进。 |
 | 2026-11-16 | Codex | 为 Phase 2 验收总结框架开 PR #82。 | 基准 `5ce59b6164799ca18d5121ddd51b6000d41e9f32`；[PR #82](https://github.com/zhihong1357/finance-research/pull/82) | 文档审阅；未运行本地检查或数据任务；等待 PR CI | 所有者审核并合并后，等待 Phase 2.3 与 2.10 验收；通过前不开始 Phase 3。 |
 | 2026-11-18 | Claude Code | 所有者决定由 Claude Code 恢复主责；起草并采纳决策 0017：Phase 3 在 Phase 2 等待验收期间开工，附五条不影响验收的约束。核对了 11-16 以来的采集记录：窗口内没有人手动启动采集，补跑都由系统启动；11-16 有一次 DVOL 失败后自行恢复。 | 基准 `01e91198caae8d0a2b9ac1100c485c75a8f3b01b`；分支 `claude/blissful-goodall-b5rewq`；拉取请求待创建 | 本地跑了 ruff、pyright、pytest；未启动任何工作流 | 所有者合并后开始 Phase 3 的开工核实与拆分；11-30 核对 2.3，12-04 核对 2.10。 |
+| 2026-11-18 | Claude Code | 为决策 0017 开 PR #83（草稿）。 | 基准 `01e91198caae8d0a2b9ac1100c485c75a8f3b01b`；[PR #83](https://github.com/zhihong1357/finance-research/pull/83) | 本地检查已过；等待 PR 的 CI | 所有者审核后以合并提交合并；之后开始 Phase 3 的开工核实与拆分。 |
