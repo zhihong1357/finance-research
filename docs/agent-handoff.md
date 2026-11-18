@@ -5,8 +5,8 @@
 ## 当前交接
 
 - **负责 agent：** Claude Code（2026-11-18 起，所有者决定由 Claude Code 恢复主责）。Codex 在 Claude Code 额度用完时临时顶替；顶替前先读下面"Codex 顶替时"一节。
-- **当前任务：** Phase 5 假说卡草稿 H-0005（P3，Binance 领先 Bybit）。分支 `claude/blissful-goodall-b5rewq`，基准 `46d0cad0cac56dbdfb563d3abf013c5aa4d2b6cb`，[PR #101](https://github.com/zhihong1357/finance-research/pull/101)。第一批草稿 H-0002 至 H-0004 已随 [PR #100](https://github.com/zhihong1357/finance-research/pull/100) 合并。
-- **下一步：** 合并后写一条规程修订提议：只有前向数据的数据源（如 2026-11 起录制的 Deribit 期权快照）怎样登记检验方案（所有者在会话中要求，状态"提议"）。之后，等待期间能做的工作基本做完：Phase 3、4 剩下的步骤要 numpy、数据或 Phase 3 的结果；Phase 5 只允许草稿。可以再写几张草稿（P3 跨市场关系、P4 期权流），但不必赶。11-30 01:00 UTC 核对 2.3、12-04 10:00 UTC 核对 2.10；两项都通过后先做 3.1b（numpy），再按 Phase 3 → Phase 4 的顺序继续。草稿卡在注册前都可以改；注册要等 Phase 3 定稿阈值。3.1b 的草稿只在 Claude Code 的会话里，不在仓库。
+- **当前任务：** 决策 0021（提议）：前向检验的格式。分支 `claude/blissful-goodall-b5rewq`，基准 `86faa5327e4b5cc9e7720acfe7ef3e604bc5984e`，[PR #102](https://github.com/zhihong1357/finance-research/pull/102)。H-0005 已随 [PR #101](https://github.com/zhihong1357/finance-research/pull/101) 合并。
+- **下一步：** 决策 0021 等所有者决定（路线图"需要所有者决定的事"第 14 项）；采纳后的实现等 Phase 2 验收之后。等待期间能做的工作基本做完：Phase 3、4 剩下的步骤要 numpy、数据或 Phase 3 的结果；Phase 5 只允许草稿。可以再写几张草稿（P3 跨市场关系、P4 期权流），但不必赶。11-30 01:00 UTC 核对 2.3、12-04 10:00 UTC 核对 2.10；两项都通过后先做 3.1b（numpy），再按 Phase 3 → Phase 4 的顺序继续。草稿卡在注册前都可以改；注册要等 Phase 3 定稿阈值。3.1b 的草稿只在 Claude Code 的会话里，不在仓库。
 - **当前路线图关卡：** Phase 2 剩余两项被动验收，Phase 3 按决策 0017 并行。
   - **2.3 观察窗口：** 2026-11-16 00:00 UTC 至 2026-11-30 00:00 UTC（马来西亚时间 11-30 08:00 结束）。窗口内不手动启动采集；补跑由系统自己启动，不算人工干预。11-16 08:39 UTC 有一次 DVOL 采集失败在"采集并推送"一步，当天更早和次日的运行都成功、没有开出中断问题；原因未查，11-30 验收时确认当天没有缺数据。
   - **2.10：** 工作流"录制类规范层"2026-12-04 06:19 UTC 写入 11 月；之后做重建核对，内容指纹一致才算通过。
@@ -65,3 +65,4 @@
 | 2026-11-18 | Claude Code | 4.3 随 PR #98 合并。做 4.4：容量估计的闭式解（盈亏平衡规模、最赚钱的规模 = 平衡规模的 4/9），手算例子，并在几种规模下与模拟器的实际成本对上（0.5% 以内）。 | 基准 `fdd784e1ea9f2dd91c37b18e1c68d6122903ad1b`；[PR #99](https://github.com/zhihong1357/finance-research/pull/99) | 本地跑了 ruff、pyright、pytest（896 个通过）；只新增文件和改文档；未启动任何工作流 | 合并后写 Phase 5 的假说卡草稿。 |
 | 2026-11-18 | Claude Code | 4.4 随 PR #99 合并。写 Phase 5 第一批假说卡草稿 H-0002（横截面资金费率）、H-0003（流动性与反转）、H-0004（结算前后的平仓压力），状态都是草稿，没有跑数据。用 3.8 算出 U1 确认集只能检出年化夏普约 2.9 以上的效应，记在路线图 Phase 5。 | 基准 `a67d14a100b2c303bf1b7c7fe6ac8b7c5152b6f9`；[PR #100](https://github.com/zhihong1357/finance-research/pull/100) | 本地跑了 ruff、pyright、pytest（896 个通过）、registry check；未启动任何工作流 | 合并后等 11-30 的 2.3 核对；可选再写草稿。 |
 | 2026-11-18 | Claude Code | 第一批草稿随 PR #100 合并。所有者要求再写 P3 草稿并提出前向数据的规程问题。写 H-0005：Binance 领先 Bybit，先验 0.05，主要用来检验成本和延迟模型能否把真实但不可交易的效应判为不可交易。 | 基准 `46d0cad0cac56dbdfb563d3abf013c5aa4d2b6cb`；[PR #101](https://github.com/zhihong1357/finance-research/pull/101) | registry check、pytest；没有跑数据；未启动任何工作流 | 合并后写前向数据的规程修订提议。 |
+| 2026-11-18 | Claude Code | H-0005 随 PR #101 合并。按所有者要求写决策 0021（提议）：前向检验现在要打开金库、窗口事后决定、只有前向数据的卡填不了；推荐卡上事先写定前向窗口、时钟只封住金库那一段。路线图加第 14 项待决定。 | 基准 `86faa5327e4b5cc9e7720acfe7ef3e604bc5984e`；[PR #102](https://github.com/zhihong1357/finance-research/pull/102) | 只改文档；未启动任何工作流 | 等所有者决定第 14 项；之后等 11-30 的 2.3 核对。 |
