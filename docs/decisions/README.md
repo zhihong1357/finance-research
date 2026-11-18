@@ -22,3 +22,4 @@
 | [0014](0014-offsite-backup.md) | 异地备份：找不回的原始数据在 Google Drive 再存一份 | 已采纳 |
 | [0015](0015-u1-segments.md) | U1 的三段边界：按月份 60/25/15，画像只用探索集 | 已采纳 |
 | [0016](0016-u1-breadth.md) | U1 的有效广度按去掉市场因子之后计，保留 U1 | 已采纳 |
+| [0017](0017-phase-3-during-phase-2-acceptance.md) | Phase 3 在 Phase 2 等待验收期间开工 | 已采纳 |
