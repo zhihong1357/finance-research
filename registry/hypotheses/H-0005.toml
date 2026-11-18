@@ -1,0 +1,44 @@
+id = "H-0005"
+title = "Binance 的价格变动领先 Bybit 同一合约；扣掉 60 秒延迟和成本后还能不能赚钱"
+program = "P3"
+return_source = "information"
+mechanism = "同一个合约在几个交易所同时交易时，价格发现集中在成交最多的那一家（Hasbrouck 1995 的信息份额）。Binance 的永续合约成交量远大于 Bybit，所以 Bybit 的价格应当跟着 Binance 走、晚一步。问题是晚多少：领先如果短于我们从决定到成交的延迟（模拟器默认 60 秒），统计上看得见，交易上拿不到。"
+counterparty = "在 Bybit 上报价或成交得比价格发现慢的一方；在毫秒级上，付钱给的是延迟套利者，不是我们"
+why_persistent = "价格发现集中在大交易所是结构性的；但延迟套利者会把可交易的领先压到毫秒级。这张卡预期：分钟级的领先在统计上可能存在，扣掉延迟和成本后不存在"
+why_us = "我们没有速度优势。只有领先超过 1 分钟、又大过来回成本的那一部分才可能留给我们，这正是要检验的"
+falsification = "确认集上，按 Binance 前 5 分钟收益交易 Bybit、延迟 60 秒、按 4.2 的成本模型扣成本后的组合收益不显著为正（预期如此）。另外报告：不扣延迟时 Binance 收益对 Bybit 下一分钟收益的预测力，用来区分\"没有领先\"和\"有领先但拿不到\""
+prior = 0.05
+data = ["binance.um.klines_1m.monthly", "bybit.trades.daily"]
+data_level = "L1"
+power = "统计上的领先用不着担心功效：确认集约 92 万分钟。约束是经济上的：一次来回至少付两次吃单手续费和两个半价差，约 0.12%，再加冲击成本；60 秒后还剩下的可预测收益必须大过它。有人估计 Binance 只领先链上交易所约 100 到 700 毫秒（Arrakis 2026，博客，非同行评审），远短于 60 秒，所以先验很低。这张卡的另一个用途，是检验成本和延迟模型能否把一个真实但不可交易的效应正确判为不可交易"
+
+[scope]
+universe = "U1"
+instruments = "同时在 Binance 和 Bybit 上市、两边前 90 天日成交额中位数都不低于 1000 万美元的 USDT 永续合约"
+horizon = "5 分钟"
+horizon_days = 0.0035
+output = "return"
+
+[plan]
+metric = "Binance 前 5 分钟收益为信号，在 Bybit 上做多空，模拟器（4.3）延迟 60 秒、保守成交、正常成本下的每日组合收益；不扣延迟时 Binance 收益对 Bybit 下一分钟收益的回归系数单独报告"
+test = "平稳自助法，以日为单位、块长自动选取，单侧"
+controls = ["Bybit 自身前 5 分钟收益", "市场因子", "两边的成交额比"]
+robustness = ["延迟 0、60、120 秒", "信号窗口 1、15 分钟", "只用成交额最大的 10 个合约", "成本加倍", "压力成交情形"]
+embargo_days = 1
+
+[plan.exploration]
+start = 2019-12-01
+end = 2024-01-31
+
+[plan.confirmation]
+start = 2024-02-01
+end = 2025-10-31
+
+[plan.vault]
+start = 2025-11-01
+end = 2026-10-31
+
+[[history]]
+at = 2026-11-18T07:10:00Z
+status = "draft"
+note = "草稿（决策 0020）：没有跑任何数据；阈值在注册时才冻结，注册等 Phase 3 定稿之后"
