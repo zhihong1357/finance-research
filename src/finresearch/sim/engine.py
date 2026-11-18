@@ -9,24 +9,45 @@ Fill rules (``FillRules``, from ``config/simulator.toml``):
 
 - An order decided at ``t`` becomes active at ``t + latency`` and can only fill
   on a bar that starts at or after that instant (decision 0012).
-- **Market order**: fills on the first such bar at its open. Fee (taker), half
-  the spread and impact are booked as costs (``sim.costs``); impact is further
-  multiplied by the scenario's ``impact_multiplier``.
+- **Market order**: fills on the first such bar at its open, so that bar must
+  start by ``expires_at`` if the order has one. Fee (taker), half the spread
+  and impact are booked as costs (``sim.costs``); impact is further multiplied
+  by the scenario's ``impact_multiplier``.
+- **Impact is charged per metaorder** (``sim.costs``): a market fill continues
+  the instrument's current metaorder if it goes the same way and comes within
+  the cost model's ``metaorder_window`` of that metaorder's first fill, and
+  then pays only the impact it adds. Otherwise it starts a new one. Splitting
+  an order, in one bar or over several, saves no impact.
 - **Limit order**: fills only if the price trades *through* the limit, not just
   touches it: a buy when the bar's low is below the limit, a sell when its high
   is above. It fills at the limit even if the bar opened better, pays the maker
   fee and no spread or impact, and fills ``limit_fill_fraction`` of its size;
-  the rest is cancelled. It expires after ``expires_at``.
+  the rest is cancelled. Only a bar that *ends* by ``expires_at`` can fill it:
+  a bar cannot say whether its high or low came before or after an instant
+  inside it, so a bar that straddles the expiry does not count.
 - **Funding** at instant ``T`` is settled on the position held before any fill
   at ``T``: settlements are processed before bars that start at ``T``. The cash
   moved is ``sim.costs.funding_cash(position x mark price, rate)``.
 
 Accounting: cash starts at ``initial_cash``; a fill of ``q`` at ``p`` moves cash
-by ``-q p`` and the costs; equity at each bar's end is cash plus every position
-valued at its instrument's latest close.
+by ``-q p`` and the costs. Equity is marked at each bar end ``E``: cash plus
+every position valued at its instrument's latest close, after every funding
+settlement at or before ``E`` and before any fill at ``E``. So the last point is
+always the final cash plus the final positions at the last closes.
+
+Inputs are checked before anything runs: UTC times; bars of one instrument in
+order; every bar on one grid of ``bar_length`` (a bar off the grid would let a
+mark at ``E`` see a close after ``E``); finite, positive, consistent prices;
+finite funding rates and positive mark prices; no funding after the last bar
+ends (no price would value it); positive finite limit prices; no expiry before
+the decision.
 
 ``simulate_all`` runs every combination of the three cost scenarios and the two
-fill scenarios (roadmap Phase 4 acceptance: one call gives all of them).
+fill scenarios (roadmap Phase 4 acceptance: one call gives all of them). The
+stress fills are harsher assumptions, not a bound on the result: a losing limit
+order loses less when only half of it fills, and a longer delay can land on a
+better price. So stress can come out ahead of conservative; read both, and
+never read stress as the worst case.
 """
 
 import math
@@ -47,6 +68,7 @@ from finresearch.sim.costs import (
 )
 
 _UTC_OFFSET = timedelta(0)
+_FUNDING, _BAR = 0, 1  # at the same instant, funding is settled before bars are traded
 
 
 class SimulationError(ValueError):
@@ -171,19 +193,38 @@ def _check_utc(t: datetime, what: str) -> None:
         raise SimulationError(f"{what} must be in UTC, got {t!r}")
 
 
+def _valid_bar(b: Bar) -> bool:
+    prices = (b.open, b.high, b.low, b.close)
+    return (
+        all(math.isfinite(x) for x in prices)
+        and 0.0 < b.low <= min(b.open, b.close)
+        and max(b.open, b.close) <= b.high
+    )
+
+
 def _validate(
     bars: Sequence[Bar],
     orders: Sequence[Order],
     funding: Sequence[FundingEvent],
     markets: Mapping[str, Market],
+    bar_length: timedelta,
+    initial_cash: float,
 ) -> None:
+    if bar_length <= timedelta(0):
+        raise SimulationError(f"bar length must be positive, got {bar_length}")
+    if not math.isfinite(initial_cash):
+        raise SimulationError(f"initial cash must be finite, got {initial_cash}")
     last: dict[str, datetime] = {}
     for b in bars:
         _check_utc(b.start, "bar start")
         if b.instrument in last and b.start <= last[b.instrument]:
             raise SimulationError(f"bars of {b.instrument} must be in time order without repeats")
         last[b.instrument] = b.start
-        if not (b.low <= min(b.open, b.close) and max(b.open, b.close) <= b.high and b.low > 0.0):
+        if (b.start - bars[0].start) % bar_length != timedelta(0):
+            raise SimulationError(
+                f"bar of {b.instrument} at {b.start.isoformat()} is off the {bar_length} grid"
+            )
+        if not _valid_bar(b):
             raise SimulationError(f"impossible bar for {b.instrument} at {b.start.isoformat()}")
     for i, o in enumerate(orders):
         _check_utc(o.decided_at, f"order {i} decision time")
@@ -195,10 +236,23 @@ def _validate(
             raise SimulationError(
                 f"order {i}: a limit price goes with a limit order, and only then"
             )
+        if o.limit_price is not None and not (math.isfinite(o.limit_price) and o.limit_price > 0.0):
+            raise SimulationError(f"order {i}: limit price must be positive, got {o.limit_price}")
         if o.expires_at is not None:
             _check_utc(o.expires_at, f"order {i} expiry")
+            if o.expires_at < o.decided_at:
+                raise SimulationError(f"order {i} expires before it is decided")
+    end = max(b.start for b in bars) + bar_length if bars else None
     for f in funding:
         _check_utc(f.at, "funding time")
+        if not math.isfinite(f.rate):
+            raise SimulationError(f"funding rate must be finite, got {f.rate}")
+        if not (math.isfinite(f.mark_price) and f.mark_price > 0.0):
+            raise SimulationError(f"funding mark price must be positive, got {f.mark_price}")
+        if end is not None and f.at > end:
+            raise SimulationError(
+                f"funding at {f.at.isoformat()} comes after the last bar ends at {end.isoformat()}"
+            )
 
 
 def _limit(order: Order) -> float:
@@ -213,6 +267,21 @@ def _limit_fills(order: Order, bar: Bar) -> bool:
     return bar.low < limit if order.quantity > 0.0 else bar.high > limit
 
 
+def _expired(order: Order, bar: Bar, bar_length: timedelta) -> bool:
+    """Too late for this bar: a market order fills at its open, a limit order needs all of it."""
+    if order.expires_at is None:
+        return False
+    last_instant = bar.start if order.kind is OrderKind.MARKET else bar.start + bar_length
+    return last_instant > order.expires_at
+
+
+@dataclass(slots=True)
+class _Metaorder:
+    sign: float
+    started: datetime
+    traded: float  # unsigned notional so far
+
+
 def simulate(
     bars: Sequence[Bar],
     orders: Sequence[Order],
@@ -224,17 +293,25 @@ def simulate(
     initial_cash: float = 0.0,
 ) -> Result:
     """Run the orders against the bars and settle funding (rules: the module docstring)."""
-    _validate(bars, orders, funding, markets)
-    if bar_length <= timedelta(0):
-        raise SimulationError(f"bar length must be positive, got {bar_length}")
+    _validate(bars, orders, funding, markets, bar_length, initial_cash)
     result = Result(cash=initial_cash)
     pending = sorted(range(len(orders)), key=lambda i: (orders[i].decided_at, i))
     closes: dict[str, float] = {}
-    # funding before bars at the same instant (kind 0 before kind 1)
-    events: list[tuple[datetime, int, int]] = [(f.at, 0, k) for k, f in enumerate(funding)]
-    events += [(b.start, 1, k) for k, b in enumerate(bars)]
+    metaorders: dict[str, _Metaorder] = {}
+    mark_due: datetime | None = None  # a bar end whose equity point is not yet taken
+
+    def mark(at: datetime) -> None:
+        value = math.fsum(q * closes[name] for name, q in result.positions.items())
+        result.equity.append((at, result.cash + value))
+
+    events: list[tuple[datetime, int, int]] = [(f.at, _FUNDING, k) for k, f in enumerate(funding)]
+    events += [(b.start, _BAR, k) for k, b in enumerate(bars)]
     for at, kind, k in sorted(events):
-        if kind == 0:
+        # the point at a bar end E: after funding at E, before fills at E
+        if mark_due is not None and (at > mark_due or (at == mark_due and kind == _BAR)):
+            mark(mark_due)
+            mark_due = None
+        if kind == _FUNDING:
             f = funding[k]
             position = result.positions.get(f.instrument, 0.0)
             if position:
@@ -249,7 +326,7 @@ def simulate(
             if o.instrument != bar.instrument or o.decided_at + rules.latency > bar.start:
                 still.append(i)
                 continue
-            if o.expires_at is not None and bar.start > o.expires_at:
+            if _expired(o, bar, bar_length):
                 result.unfilled.append(i)
                 continue
             if o.kind is OrderKind.MARKET:
@@ -262,6 +339,19 @@ def simulate(
                 continue
             m = markets[o.instrument]
             notional = quantity * price
+            prior = 0.0
+            if liquidity is Liquidity.TAKER:
+                sign = math.copysign(1.0, quantity)
+                current = metaorders.get(o.instrument)
+                if (
+                    current is not None
+                    and current.sign == sign
+                    and bar.start - current.started < costs.metaorder_window
+                ):
+                    prior = current.traded
+                else:
+                    current = metaorders[o.instrument] = _Metaorder(sign, bar.start, 0.0)
+                current.traded += abs(notional)
             base = costs.trade(
                 m.exchange,
                 notional,
@@ -269,6 +359,7 @@ def simulate(
                 half_spread=m.half_spread,
                 daily_volume=m.daily_volume,
                 daily_vol=m.daily_vol,
+                prior=prior,
             )
             if liquidity is Liquidity.MAKER:  # a resting order pays the maker fee and nothing else
                 cost = TradeCost(base.fee, 0.0, 0.0)
@@ -279,12 +370,10 @@ def simulate(
             result.fills.append(Fill(i, bar.start, o.instrument, quantity, price, liquidity, cost))
         pending = still
         closes[bar.instrument] = bar.close
-        value = math.fsum(q * closes.get(name, 0.0) for name, q in result.positions.items())
-        point = (bar.start + bar_length, result.cash + value)
-        if result.equity and result.equity[-1][0] == point[0]:
-            result.equity[-1] = point  # one point per instant, after every bar ending there
-        else:
-            result.equity.append(point)
+        end = bar.start + bar_length
+        mark_due = end if mark_due is None else max(mark_due, end)
+    if mark_due is not None:
+        mark(mark_due)
     result.unfilled.extend(pending)
     result.unfilled.sort()
     return result

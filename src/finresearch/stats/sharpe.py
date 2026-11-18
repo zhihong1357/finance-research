@@ -15,7 +15,12 @@ of the returns (``kurt`` is not excess kurtosis: 3 for a normal distribution).
   best of ``trials`` independent trials with no skill is expected to show, given
   the variance of the trials' Sharpe ratios,
   ``sqrt(V) ((1 - g) Phi^-1(1 - 1/N) + g Phi^-1(1 - 1/(N e)))`` with ``g`` the
-  Euler-Mascheroni constant.
+  Euler-Mascheroni constant. The formula is a large-N approximation: below about
+  1.29 trials it turns negative, although the best of N >= 1 draws is never
+  expected below 0 (the value at N = 1). So it is floored at 0, and one trial
+  gives 0: a single trial is not deflated, and more trials never make the
+  benchmark easier than none. (For small N the approximation runs a little low,
+  0.52 against the exact 0.56 at N = 2; any real search has far more trials.)
 - ``deflated_sharpe``: the probabilistic Sharpe ratio against that expected
   maximum: the chance the selected strategy beats what a search of that size
   finds by luck. ``trials`` is the effective number of independent trials
@@ -60,11 +65,11 @@ def moments(returns: Sequence[float]) -> Moments:
         raise SharpeError(f"need at least {_MIN_OBSERVATIONS} returns, got {n}")
     if not all(math.isfinite(r) for r in returns):
         raise SharpeError("returns must be finite")
+    if min(returns) == max(returns):  # tested on the inputs: the mean's rounding would hide it
+        raise SharpeError("constant returns have no Sharpe ratio")
     m = math.fsum(returns) / n
     d = [r - m for r in returns]
     m2 = math.fsum(x * x for x in d) / n
-    if m2 == 0.0:
-        raise SharpeError("constant returns have no Sharpe ratio")
     m3 = math.fsum(x**3 for x in d) / n
     m4 = math.fsum(x**4 for x in d) / n
     return Moments(n, m, math.sqrt(m2 * n / (n - 1)), m3 / m2**1.5, m4 / (m2 * m2))
@@ -104,13 +109,15 @@ def min_track_record(
 
 def expected_max_sharpe(trials: float, variance: float) -> float:
     """Expected best Sharpe ratio among ``trials`` independent trials with no skill."""
-    if not trials > 1.0:
-        raise SharpeError(f"need more than one trial, got {trials}")
-    if variance < 0.0:
-        raise SharpeError(f"variance must not be negative, got {variance}")
+    if not trials >= 1.0 or not math.isfinite(trials):
+        raise SharpeError(f"need at least one trial, got {trials}")
+    if not variance >= 0.0 or not math.isfinite(variance):
+        raise SharpeError(f"variance must be finite and not negative, got {variance}")
+    if trials == 1.0:
+        return 0.0
     a = _NORMAL.inv_cdf(1.0 - 1.0 / trials)
     b = _NORMAL.inv_cdf(1.0 - 1.0 / (trials * math.e))
-    return math.sqrt(variance) * ((1.0 - EULER_GAMMA) * a + EULER_GAMMA * b)
+    return max(0.0, math.sqrt(variance) * ((1.0 - EULER_GAMMA) * a + EULER_GAMMA * b))
 
 
 def deflated_sharpe(

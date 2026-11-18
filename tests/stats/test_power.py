@@ -42,6 +42,15 @@ def test_required_sharpe_observations_by_hand() -> None:
     assert required_sharpe_observations(0.1, 3.0, 0.8, inflation=ar1_inflation(0.5)) == 4453
 
 
+def test_a_huge_effect_still_needs_two_observations() -> None:
+    # SR 5, t 1, power 0.6: 1 + 13.5 * ((1 + 0.253347) / 5)^2 = 1.848 -> at least 2
+    assert required_sharpe_observations(5.0, 1.0, 0.6) == 2
+    assert required_sharpe_observations(5.0, 1.0, 0.6, inflation=3.0) == 6
+    # d 10, t 1, power 0.6: 2 ((1 + 0.253347) / 10)^2 = 0.031 -> at least 2 per group
+    assert required_per_group(10.0, 1.0, 0.6) == 2
+    assert two_sample_power(10.0, 2, 1.0, two_sided=False) >= 0.6
+
+
 def test_half_power_is_the_minimum_track_record() -> None:
     # power 0.5 puts the threshold at the expected statistic: the minimum track record length
     trl = min_track_record(0.1, 0.0, -1.0, 6.0, NormalDist().cdf(3.0))

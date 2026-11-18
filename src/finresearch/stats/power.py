@@ -18,7 +18,8 @@ normal approximation to the test statistic.
   ``h`` for overlapping ``h``-period labels built from independent returns.
 
 ``required_*`` invert ``power`` for one side (the far tail adds almost nothing
-at useful power) and round up.
+at useful power) and round up, never below the 2 (effective) observations the
+statistic needs: a huge effect still needs a sample that can show it.
 """
 
 import math
@@ -104,7 +105,7 @@ def required_sharpe_observations(
     if inflation <= 0.0:
         raise PowerError(f"inflation must be positive, got {inflation}")
     spread = sharpe_standard_error(sr, _MIN_OBSERVATIONS, skew, kurt) ** 2  # (n - 1) se^2
-    n_eff = 1.0 + spread * ((threshold + _NORMAL.inv_cdf(power)) / sr) ** 2
+    n_eff = max(_MIN_OBSERVATIONS, 1.0 + spread * ((threshold + _NORMAL.inv_cdf(power)) / sr) ** 2)
     return math.ceil(n_eff * inflation)
 
 
@@ -126,4 +127,5 @@ def required_per_group(d: float, threshold: float, power: float) -> int:
     _check_power(power)
     if not d > 0.0:
         raise PowerError(f"the effect must be positive, got d {d}")
-    return math.ceil(2.0 * ((threshold + _NORMAL.inv_cdf(power)) / d) ** 2)
+    n = math.ceil(2.0 * ((threshold + _NORMAL.inv_cdf(power)) / d) ** 2)
+    return max(_MIN_OBSERVATIONS, n)

@@ -97,8 +97,8 @@ def test_stress_scenario_by_hand() -> None:
     assert (buy.at, buy.price) == (t(2), 101.5)
     assert buy.cost.impact == pytest.approx(2 * 203 * 0.04 * math.sqrt(203 / 1e8))
     assert buy.cost.impact == pytest.approx(0.0231385, abs=1e-7)
-    # The limit sell is active from 10:03: highs 102.8 and 102.2 never trade through 102.9,
-    # and at 10:05 it has expired.
+    # The limit sell is active from 10:03: that bar's high 102.8 does not trade through 102.9,
+    # and the 10:04 bar ends after its 10:04 expiry, so it cannot count.
     assert r.unfilled == [1]
     # Long 2 at the 10:03 funding: pays 2 x 102 x 0.01% = 0.0204
     (paid,) = r.funding
@@ -121,9 +121,109 @@ def test_one_call_gives_every_scenario() -> None:
     assert equity[(Scenario.DOUBLE, FillScenario.CONSERVATIVE)] == pytest.approx(
         3.4523124, abs=1e-7
     )
-    # Stress is never better than conservative under the same costs
+    # Here stress does worse under the same costs; in general it need not (the next test)
     for c in Scenario:
         assert equity[(c, FillScenario.STRESS)] <= equity[(c, FillScenario.CONSERVATIVE)]
+
+
+def test_stress_is_not_a_bound_on_the_result() -> None:
+    # A buy limit at 99 into a falling market. Conservative: active 10:01, that bar's low 98 trades
+    # through, buys 2 at 99; stress: active 10:02, buys only half, 1 at 99. Both end at 90.
+    # Conservative: -198 - 198 x 0.02% + 2 x 90 = -18.0396; stress: -99 - 0.0198 + 90 = -9.0198
+    bars = [
+        Bar("BTC", t(0), 100.0, 100.0, 100.0, 100.0),
+        Bar("BTC", t(1), 100.0, 100.0, 98.0, 98.0),
+        Bar("BTC", t(2), 90.0, 90.0, 89.0, 90.0),
+    ]
+    order = Order(t(0), "BTC", 2.0, OrderKind.LIMIT, limit_price=99.0)
+    results = simulate_all(bars, [order], [], MARKETS, MINUTE)
+    conservative = results[(Scenario.NORMAL, FillScenario.CONSERVATIVE)].equity[-1][1]
+    stress = results[(Scenario.NORMAL, FillScenario.STRESS)].equity[-1][1]
+    assert conservative == pytest.approx(-18.0396)
+    assert stress == pytest.approx(-9.0198)
+    assert stress > conservative
+
+
+def _conservative(orders: list[Order], funding: list[FundingEvent] | None = None) -> Result:
+    return simulate(
+        BARS,
+        orders,
+        funding or [],
+        MARKETS,
+        cost_model(Scenario.NORMAL),
+        fill_rules(FillScenario.CONSERVATIVE),
+        MINUTE,
+    )
+
+
+def test_impact_is_charged_on_the_metaorder() -> None:
+    # c(x) = 1.0 x 0.04 x x^1.5 / sqrt(1e8). Buys of 1 decided at 10:00 and 10:01 fill at the
+    # 10:01 open 101 and the 10:02 open 101.5: one metaorder. The first pays c(101) = 0.0040601,
+    # the second c(202.5) - c(101) = 0.0115265 - 0.0040601 = 0.0074664, not c(101.5) = 0.0040903.
+    r = _conservative([Order(t(0), "BTC", 1.0), Order(t(1), "BTC", 1.0)])
+    first, second = (f.cost.impact for f in r.fills)
+    assert first == pytest.approx(0.0040601, abs=1e-7)
+    assert second == pytest.approx(0.0074664, abs=1e-7)
+    # a sell in between starts a new metaorder: the second buy pays c(101.5) on its own
+    r = _conservative([Order(t(0), "BTC", 1.0), Order(t(0), "BTC", -0.5), Order(t(1), "BTC", 1.0)])
+    assert r.fills[2].cost.impact == pytest.approx(0.0040903, abs=1e-7)
+    # two buys of 1 in the same bar pay what one buy of 2 pays: c(202) = 0.0114838,
+    # where pricing each alone would give 2 c(101) = 0.0081203
+    r = _conservative([Order(t(0), "BTC", 1.0), Order(t(0), "BTC", 1.0)])
+    assert r.costs == pytest.approx(_conservative([Order(t(0), "BTC", 2.0)]).costs)
+    assert math.fsum(f.cost.impact for f in r.fills) == pytest.approx(0.0114838, abs=1e-7)
+
+
+def test_a_metaorder_ends_with_its_window() -> None:
+    # a window of two minutes: the 10:01 and 10:02 buys are one metaorder, the 10:03 buy a new one
+    cfg = {
+        "fees": {"binance": {"maker": 0.0002, "taker": 0.0005}},
+        "impact": {"y": 1.0, "metaorder_hours": 2 / 60},
+        "scenarios": {"normal": 1.0},
+    }
+    orders = [Order(t(m), "BTC", 1.0) for m in range(3)]
+    r = simulate(
+        BARS,
+        orders,
+        [],
+        MARKETS,
+        cost_model(Scenario.NORMAL, cfg),
+        fill_rules(FillScenario.CONSERVATIVE),
+        MINUTE,
+    )
+    alone = 0.04 * (1.0 * 102.5) ** 1.5 / 1e4  # the 10:03 open, 102.5: 0.0041510
+    assert r.fills[2].cost.impact == pytest.approx(alone)
+    assert alone == pytest.approx(0.0041510, abs=1e-7)
+
+
+def test_a_limit_order_needs_the_whole_bar_before_its_expiry() -> None:
+    # buy limit 100.2, active from 10:01. Good until 10:01:30: the 10:01 bar (low 100.0, through
+    # the limit) ends at 10:02, after the expiry, so it does not fill. Good until 10:02: it does.
+    straddles = Order(t(0), "BTC", 1.0, OrderKind.LIMIT, 100.2, t(1) + timedelta(seconds=30))
+    assert _conservative([straddles]).unfilled == [0]
+    ends_in_time = Order(t(0), "BTC", 1.0, OrderKind.LIMIT, 100.2, t(2))
+    assert [f.at for f in _conservative([ends_in_time]).fills] == [t(1)]
+    # a market order fills at the open, so it only needs the bar to start by its expiry
+    market = Order(t(0), "BTC", 1.0, OrderKind.MARKET, None, t(1))
+    assert [f.at for f in _conservative([market]).fills] == [t(1)]
+
+
+def test_funding_at_the_last_bar_end_reaches_the_equity_curve() -> None:
+    # long 2 from 10:01; funding at 10:06, when the last bar ends: pays 2 x 100 x 0.1% = 0.2
+    funding = [FundingEvent("BTC", t(6), rate=0.001, mark_price=100.0)]
+    r = _conservative([Order(t(0), "BTC", 2.0)], funding)
+    (paid,) = r.funding
+    assert paid.cash == pytest.approx(-0.2)
+    assert r.equity[-1] == (t(6), pytest.approx(r.cash + 2 * 100.8))
+    # funding between bar ends shows in the next point: at 10:03:30 it is in the 10:04 point
+    mid = [FundingEvent("BTC", t(3) + timedelta(seconds=30), rate=0.001, mark_price=100.0)]
+    with_mid, without = (
+        _conservative([Order(t(0), "BTC", 2.0)], mid),
+        _conservative([Order(t(0), "BTC", 2.0)]),
+    )
+    gap = [a[1] - b[1] for a, b in zip(with_mid.equity, without.equity, strict=True)]
+    # points at 10:01 to 10:06: the 10:04 point is the first to include it
+    assert gap == [0.0, 0.0, 0.0, pytest.approx(-0.2), pytest.approx(-0.2), pytest.approx(-0.2)]
 
 
 def test_touching_a_limit_is_not_trading_through_it() -> None:
@@ -223,12 +323,29 @@ def test_invalid_inputs_are_refused() -> None:
         (BARS, [Order(t(0), "SOL", 1.0)]),
         (BARS, [Order(t(0), "BTC", 1.0, OrderKind.LIMIT)]),
         (BARS, [Order(t(0), "BTC", 1.0, limit_price=100.0)]),
+        ([*BARS, Bar("ETH", t(0) + timedelta(seconds=30), 10.0, 10.0, 10.0, 10.0)], []),  # off grid
+        ([Bar("BTC", t(0), 100.0, math.inf, 99.0, 100.0)], []),
+        ([Bar("BTC", t(0), math.nan, 101.0, 99.0, 100.0)], []),
+        (BARS, [Order(t(0), "BTC", 1.0, OrderKind.LIMIT, -1.0)]),
+        (BARS, [Order(t(0), "BTC", 1.0, OrderKind.LIMIT, math.nan)]),
+        (BARS, [Order(t(1), "BTC", 1.0, OrderKind.MARKET, None, t(0))]),  # expires before decided
     ]
     for bars, orders in bad_runs:
         with pytest.raises(SimulationError):
             simulate(bars, orders, [], MARKETS, normal, rules, MINUTE)
+    bad_funding = [
+        FundingEvent("BTC", t(6) + timedelta(seconds=1), 0.0001, 100.0),  # after the last bar
+        FundingEvent("BTC", t(3), math.nan, 100.0),
+        FundingEvent("BTC", t(3), 0.0001, math.nan),
+        FundingEvent("BTC", t(3), 0.0001, 0.0),
+    ]
+    for event in bad_funding:
+        with pytest.raises(SimulationError):
+            simulate(BARS, [], [event], MARKETS, normal, rules, MINUTE)
     with pytest.raises(SimulationError):
         simulate(BARS, [], [], MARKETS, normal, rules, timedelta(0))
+    with pytest.raises(SimulationError):
+        simulate(BARS, [], [], MARKETS, normal, rules, MINUTE, initial_cash=math.inf)
     with pytest.raises(SimulationError):
         fill_rules(
             FillScenario.STRESS,

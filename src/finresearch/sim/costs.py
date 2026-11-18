@@ -13,6 +13,17 @@ A trade costs three things, each non-negative:
   the square-root law (Tóth et al. 2011). The peak impact is charged on the
   whole trade, which overstates the average and so errs on the costly side.
 
+The square-root law prices a *metaorder*, all the child orders one trader
+sends in one direction, not each child alone. Priced per child, splitting a
+trade into k pieces would cut its impact by sqrt(k): 100 pieces of a $100,000
+trade would pay a tenth of what the trade pays. So a trade that continues a
+metaorder pays the increase it causes, ``cost(prior + |notional|) - cost(prior)``
+with ``prior`` the notional the metaorder already traded, and the pieces add up
+to exactly what one trade of the whole would pay. The simulator decides what
+continues a metaorder (``sim.engine``): same instrument, same direction, within
+``metaorder_window`` of its first fill (``config/costs.toml``; a day, the
+period ``daily_volume`` is counted over).
+
 A cost scenario (zero, normal, double) multiplies all three. Funding is not a
 cost assumption but a cash flow the data records, possibly income, so it is
 never scaled: holding ``position`` through a settlement with rate ``rate``
@@ -24,6 +35,7 @@ receives it), at the settlement instants the data shows (roadmap 4.0: 8, 4 or
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import timedelta
 from enum import StrEnum
 from typing import Any
 
@@ -89,8 +101,16 @@ def impact_fraction(notional: float, daily_volume: float, daily_vol: float, y: f
     return y * daily_vol * math.sqrt(abs(notional) / daily_volume)
 
 
-def impact_cost(notional: float, daily_volume: float, daily_vol: float, y: float) -> float:
-    return abs(notional) * impact_fraction(notional, daily_volume, daily_vol, y)
+def impact_cost(
+    notional: float, daily_volume: float, daily_vol: float, y: float, prior: float = 0.0
+) -> float:
+    """Impact of ``notional`` traded after ``prior`` (unsigned) in the same metaorder."""
+    if not prior >= 0.0:
+        raise CostError(f"prior notional must not be negative, got {prior}")
+    total = prior + abs(notional)
+    return total * impact_fraction(total, daily_volume, daily_vol, y) - prior * impact_fraction(
+        prior, daily_volume, daily_vol, y
+    )
 
 
 def funding_cash(position: float, rate: float) -> float:
@@ -105,6 +125,11 @@ class CostModel:
     fees: Mapping[str, Fees]  # by exchange
     y: float
     multiplier: float  # the cost scenario's
+    metaorder_window: timedelta  # how long same-direction trades count as one metaorder
+
+    def __post_init__(self) -> None:
+        if self.metaorder_window <= timedelta(0):
+            raise CostError(f"metaorder window must be positive, got {self.metaorder_window}")
 
     def trade(
         self,
@@ -115,8 +140,9 @@ class CostModel:
         half_spread: float,
         daily_volume: float,
         daily_vol: float,
+        prior: float = 0.0,
     ) -> TradeCost:
-        """What a trade of ``notional`` costs under this scenario."""
+        """What a trade of ``notional`` costs under this scenario, ``prior`` into its metaorder."""
         fees = self.fees.get(exchange)
         if fees is None:
             raise CostError(f"no fees for exchange {exchange!r} (have {sorted(self.fees)})")
@@ -124,7 +150,7 @@ class CostModel:
         return TradeCost(
             fee=m * fee(notional, fees, liquidity),
             spread=m * spread_cost(notional, half_spread),
-            impact=m * impact_cost(notional, daily_volume, daily_vol, self.y),
+            impact=m * impact_cost(notional, daily_volume, daily_vol, self.y, prior),
         )
 
 
@@ -135,7 +161,8 @@ def cost_model(scenario: Scenario, config: Mapping[str, Any] | None = None) -> C
     multiplier = float(cfg["scenarios"][scenario.value])
     if multiplier < 0.0:
         raise CostError(f"scenario {scenario} has a negative multiplier {multiplier}")
-    return CostModel(fees, float(cfg["impact"]["y"]), multiplier)
+    window = timedelta(hours=float(cfg["impact"]["metaorder_hours"]))
+    return CostModel(fees, float(cfg["impact"]["y"]), multiplier, window)
 
 
 def all_scenarios(config: Mapping[str, Any] | None = None) -> dict[Scenario, CostModel]:

@@ -1,4 +1,5 @@
 import math
+from datetime import timedelta
 
 import pytest
 
@@ -41,6 +42,18 @@ def test_square_root_impact_by_hand() -> None:
     assert impact_cost(40_000.0, 100_000_000.0, 0.04, 1.0) == pytest.approx(32.0)
 
 
+def test_a_metaorder_pays_for_its_whole_size() -> None:
+    # 10,000 after 30,000 already traded: total 40,000 costs 32.0 (above), the 30,000 before it
+    # 30,000 x 0.04 x sqrt(30,000 / 1e8) = 1200 x 0.0173205 = 20.7846; the increase 11.2154
+    assert impact_cost(10_000.0, 1e8, 0.04, 1.0, prior=30_000.0) == pytest.approx(11.215390, 1e-6)
+    # four slices of 10,000 add up to one trade of 40,000
+    slices = [impact_cost(10_000.0, 1e8, 0.04, 1.0, prior=10_000.0 * k) for k in range(4)]
+    assert math.fsum(slices) == pytest.approx(impact_cost(40_000.0, 1e8, 0.04, 1.0))
+    # the sign of the slice does not matter, only its size
+    assert impact_cost(-10_000.0, 1e8, 0.04, 1.0, prior=30_000.0) == pytest.approx(11.215390, 1e-6)
+    assert cost_model(Scenario.NORMAL).metaorder_window == timedelta(hours=24)
+
+
 def test_funding_by_hand() -> None:
     # $10,000 long through a +0.01% settlement pays 1.0; the short receives it
     assert funding_cash(10_000.0, 0.0001) == pytest.approx(-1.0)
@@ -75,7 +88,7 @@ def test_the_config_holds_the_published_rates() -> None:
 def test_a_config_can_be_passed_in() -> None:
     cfg = {
         "fees": {"x": {"maker": 0.0, "taker": 0.001}},
-        "impact": {"y": 0.5},
+        "impact": {"y": 0.5, "metaorder_hours": 24},
         "scenarios": {"zero": 0.0, "normal": 1.0, "double": 2.0},
     }
     m = cost_model(Scenario.DOUBLE, cfg)
@@ -96,6 +109,11 @@ def test_invalid_inputs_are_refused() -> None:
         lambda: impact_fraction(10_000.0, 0.0, 0.04, 1.0),
         lambda: impact_fraction(10_000.0, 1e8, -0.04, 1.0),
         lambda: funding_cash(10_000.0, math.nan),
+        lambda: impact_cost(10_000.0, 1e8, 0.04, 1.0, prior=-1.0),
+        lambda: cost_model(
+            Scenario.NORMAL,
+            {"fees": {}, "impact": {"y": 1.0, "metaorder_hours": 0}, "scenarios": {"normal": 1.0}},
+        ),
         lambda: cost_model(Scenario.NORMAL).trade("okx", 1.0, Liquidity.TAKER, **TRADE),
         lambda: cost_model(
             Scenario.ZERO,

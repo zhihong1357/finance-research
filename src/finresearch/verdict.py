@@ -26,8 +26,10 @@ applies passes.
 
 Thresholds come from the hypothesis card (``Thresholds.from_plan``), which
 already refuses values looser than ``config/protocol.toml``; ``Thresholds``
-itself accepts any values, because the meta-research also asks what a looser
-or stricter bar would have done.
+itself accepts any usable values, because the meta-research also asks what a
+looser or stricter bar would have done. Usable includes the strictest ends a
+card may choose (``dsr_min`` 1, ``pbo_max`` 0); a DSR above 1 or a PBO below 0
+cannot be met by any evidence and is refused.
 """
 
 from collections.abc import Sequence
@@ -69,10 +71,10 @@ class Thresholds:
     def __post_init__(self) -> None:
         if not self.t > 0.0:
             raise VerdictError(f"threshold t must be positive, got {self.t}")
-        if not 0.0 < self.dsr_min < 1.0:
-            raise VerdictError(f"dsr_min must be strictly between 0 and 1, got {self.dsr_min}")
-        if not 0.0 < self.pbo_max < 1.0:
-            raise VerdictError(f"pbo_max must be strictly between 0 and 1, got {self.pbo_max}")
+        if not 0.0 < self.dsr_min <= 1.0:
+            raise VerdictError(f"dsr_min must be in (0, 1], got {self.dsr_min}")
+        if not 0.0 <= self.pbo_max < 1.0:
+            raise VerdictError(f"pbo_max must be in [0, 1), got {self.pbo_max}")
 
     @classmethod
     def defaults(cls) -> Thresholds:
