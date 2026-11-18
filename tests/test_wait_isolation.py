@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "finresearch"
 ADDED_DURING_THE_WAIT = (
     "finresearch.meta",
+    "finresearch.meta.bench",
     "finresearch.meta.noise",
     "finresearch.meta.planted",
     "finresearch.model",
@@ -35,6 +36,7 @@ ADDED_DURING_THE_WAIT = (
     "finresearch.stats.bootstrap",
     "finresearch.stats.clusters",
     "finresearch.stats.crossval",
+    "finresearch.stats.hac",
     "finresearch.stats.montecarlo",
     "finresearch.stats.multiple",
     "finresearch.stats.overfitting",
@@ -43,7 +45,7 @@ ADDED_DURING_THE_WAIT = (
     "finresearch.stats.snooping",
     "finresearch.verdict",
 )
-THEIR_CONFIG = ("costs", "simulator", "noise")  # their files in config/
+THEIR_CONFIG = ("costs", "simulator", "noise", "meta")  # their files in config/
 
 
 def _module_name(path: Path) -> str:

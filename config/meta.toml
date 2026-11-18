@@ -1,0 +1,27 @@
+# 元研究模拟台（Phase 3.12，src/finresearch/meta/bench.py；决策 0024）。
+# 世界的大小取 U1 的量级；成本是示意值。
+
+[world]
+instruments = 30
+days = 2500              # 约 7 年，与 U1 2019-12 至 2026-10 相当
+exploration = 0.60       # 规程第 3 节：探索集 60%
+confirmation = 0.25      # 确认集 25%；最后 15% 是金库，元研究不用
+embargo_days = 20        # 确认集开头的隔离期，不短于最长的持有期
+
+[family]
+# 决策 0024 选择 1：横截面动量和反转。信号是过去 lookback 天的收益之和，持有 holding 天。
+lookbacks = [1, 2, 5, 10, 20, 60]
+holdings = [1, 5, 20]
+
+[many]
+# 决策 0024 选择 3：同一世界里互不相关的假说，各试一次（信号是各自的特征本身，持有 1 天）。
+hypotheses = 20
+persistence = 0.9        # 特征的 AR(1) 持续性
+
+[confirmation]
+segments = 4             # 分段检验的子时期数
+pbo_partitions = 16      # 回测过拟合概率的切分段数 S
+onc_restarts = 10        # ONC 每个 k 的 k 均值重启次数
+
+[costs]
+per_unit_traded = 0.0006 # 每交易 1 个单位总敞口的成本：吃单 0.05% + 半个价差 0.01%（示意，参照 config/costs.toml）
