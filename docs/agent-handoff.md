@@ -5,7 +5,7 @@
 ## 当前交接
 
 - **负责 agent：** Claude Code（2026-11-18 起，所有者决定由 Claude Code 恢复主责）。Codex 在 Claude Code 额度用完时临时顶替；顶替前先读下面"Codex 顶替时"一节。
-- **当前任务：** Phase 3.6b 有效独立试验次数（纯 Python 参考实现）。分支 `claude/blissful-goodall-b5rewq`，基准 `af916e4`（PR #106 合并后的 `main`），[PR #107](https://github.com/zhihong1357/finance-research/pull/107)。3.4、3.10、3.11 已在 Claude Code 会话里做完并各自提交，按顺序每合并一个再开下一个。
+- **当前任务：** Phase 3.4 数据窥探检验（纯 Python 参考实现）。分支 `claude/blissful-goodall-b5rewq`，基准 `8ff42d2`（PR #107 合并后的 `main`），[PR #108](https://github.com/zhihong1357/finance-research/pull/108)。3.10、3.11 已在 Claude Code 会话里做完并各自提交，按顺序每合并一个再开下一个。
 - **下一步：** 所有者要求在不影响 Phase 2 的前提下继续推进。标"要 numpy"的 Phase 3 步骤先写纯 Python 参考实现、用小规模合成数据验收（路线图 Phase 3 "纯 Python 参考实现"一段），顺序 3.3 → 3.7 → 3.6b → 3.4 → 3.10 → 3.11 → 3.12 的流程逻辑，每步一个拉取请求；新模块要加进 `tests/test_wait_isolation.py` 的清单。numpy 仍等 Phase 2 验收之后（3.1b），届时写快速版本并与参考实现对照。Phase 2 验收之后另有两件小事：假说卡格式拒绝大于 1 的折损夏普门槛和小于 0 的过拟合概率门槛（`registry/models.py`）；考虑在运行时也保护门的内部表格（`data/pit.py`），见决策 0022。决策 0021 的实现也在验收之后。11-30 01:00 UTC 核对 2.3、12-04 10:00 UTC 核对 2.10。
 - **当前路线图关卡：** Phase 2 剩余两项被动验收，Phase 3 按决策 0017 并行。
   - **2.3 观察窗口：** 2026-11-16 00:00 UTC 至 2026-11-30 00:00 UTC（马来西亚时间 11-30 08:00 结束）。窗口内不手动启动采集；补跑由系统自己启动，不算人工干预。11-16 08:39 UTC 有一次 DVOL 采集失败在"采集并推送"一步，当天更早和次日的运行都成功、没有开出中断问题；原因未查，11-30 验收时确认当天没有缺数据。
@@ -75,3 +75,5 @@
 | 2026-11-18 | Claude Code | 为 3.7 开 PR #106（草稿）。 | 基准 `a80abba`；[PR #106](https://github.com/zhihong1357/finance-research/pull/106) | 本地检查已过；等待 PR 的 CI | 所有者审核后以合并提交合并；之后开 3.6b。 |
 | 2026-11-18 | Claude Code | 3.7 随 PR #106 合并。做 3.6b：按 López de Prado & Lewis (2019) 第 8 节和附录代码实现 ONC 聚类，得出有效独立试验次数和各簇夏普的方差。在不进仓库的临时环境里用 scikit-learn 跑作者原版代码对照，查出初始化的差别（原版用贪心 k-means++），改正后认对簇数的比率与原版一致。 | 基准 `af916e4`；分支 `claude/blissful-goodall-b5rewq`；拉取请求待创建 | 本地跑了 ruff、pyright、pytest；只新增文件和改文档、测试；未启动任何工作流 | 合并后开 3.4。 |
 | 2026-11-18 | Claude Code | 为 3.6b 开 PR #107（草稿）。 | 基准 `af916e4`；[PR #107](https://github.com/zhihong1357/finance-research/pull/107) | 本地检查已过；等待 PR 的 CI | 所有者审核后以合并提交合并；之后开 3.4。 |
+| 2026-11-18 | Claude Code | 3.6b 随 PR #107 合并。做 3.4：White (2000) 的现实检验和 Romano & Wolf 的 StepM（基础统计量），读了 White 的期刊版和 Romano & Wolf 2003 年的工作论文。时间上独立的噪声上两者的误报率与名义一致；实测发现时间上相依的数据在有限样本下偏宽松（名义 10%，块自助法约 14–15%），原因与 3.3 的 G/b 偏差一致，记进路线图留给 3.12 量化。学生化版本和 Hansen 的 SPA 没做。 | 基准 `8ff42d2`；分支 `claude/blissful-goodall-b5rewq`；拉取请求待创建 | 本地跑了 ruff、pyright、pytest；只新增文件和改文档、测试；未启动任何工作流 | 合并后开 3.10。 |
+| 2026-11-18 | Claude Code | 为 3.4 开 PR #108（草稿）。 | 基准 `8ff42d2`；[PR #108](https://github.com/zhihong1357/finance-research/pull/108) | 本地检查已过；等待 PR 的 CI | 所有者审核后以合并提交合并；之后开 3.10。 |
