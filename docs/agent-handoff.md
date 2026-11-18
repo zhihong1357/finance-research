@@ -5,8 +5,8 @@
 ## 当前交接
 
 - **负责 agent：** Claude Code（2026-11-18 起，所有者决定由 Claude Code 恢复主责）。Codex 在 Claude Code 额度用完时临时顶替；顶替前先读下面"Codex 顶替时"一节。
-- **当前任务：** Phase 4.0 开工核实与拆分（路线图 Phase 4 的步骤表）。分支 `claude/blissful-goodall-b5rewq`，基准 `8f69beae30ab45d54709db5844a353f9972310c6`，[PR #95](https://github.com/zhihong1357/finance-research/pull/95)。决策 0020 已随 [PR #94](https://github.com/zhihong1357/finance-research/pull/94) 合并。
-- **下一步：** 合并后按顺序做 4.1 信号接口、4.2 成本模型、4.3 模拟器核心、4.4 容量估计，每步一个拉取请求，都只用标准库、只新增文件、不读真实数据。11-30、12-04 的定时核对照旧；Phase 2 两项都通过后，先做 Phase 3 要 numpy 的步骤（从 3.1b 开始），再回到 Phase 4 剩下的部分。3.1b 的草稿只在 Claude Code 的会话里，不在仓库。
+- **当前任务：** Phase 4.1 信号接口（`src/finresearch/model/signal.py`、`src/finresearch/signals/`）。分支 `claude/blissful-goodall-b5rewq`，基准 `3a8175327fb99121eb6a74bcb9a20e95657cdab7`，拉取请求待创建。4.0 已随 [PR #95](https://github.com/zhihong1357/finance-research/pull/95) 合并。
+- **下一步：** 合并后按顺序做 4.2 成本模型、4.3 模拟器核心、4.4 容量估计，每步一个拉取请求，都只用标准库、只新增文件、不读真实数据。11-30、12-04 的定时核对照旧；Phase 2 两项都通过后，先做 Phase 3 要 numpy 的步骤（从 3.1b 开始），再回到 Phase 4 剩下的部分。3.1b 的草稿只在 Claude Code 的会话里，不在仓库。
 - **当前路线图关卡：** Phase 2 剩余两项被动验收，Phase 3 按决策 0017 并行。
   - **2.3 观察窗口：** 2026-11-16 00:00 UTC 至 2026-11-30 00:00 UTC（马来西亚时间 11-30 08:00 结束）。窗口内不手动启动采集；补跑由系统自己启动，不算人工干预。11-16 08:39 UTC 有一次 DVOL 采集失败在"采集并推送"一步，当天更早和次日的运行都成功、没有开出中断问题；原因未查，11-30 验收时确认当天没有缺数据。
   - **2.10：** 工作流"录制类规范层"2026-12-04 06:19 UTC 写入 11 月；之后做重建核对，内容指纹一致才算通过。
@@ -59,3 +59,4 @@
 | 2026-11-18 | Claude Code | 所有者按建议决定路线图第 12、13 项，记为决策 0018（元研究的名义水平）和 0019（阳性对照 (c) 改用 DVOL，沿用 U1 的边界）。落实时修正了建议里的两处：t 关按判定函数只看预测方向，名义水平是 0.135% 而不是双侧 0.27%；边界按研究宇宙记，DVOL 另定边界会造成跨数据源偷看，所以沿用 U1 的 B-0001。 | 基准 `29ecba98e22a6009ad48c95b5bc9cea38b53432c`；[PR #93](https://github.com/zhihong1357/finance-research/pull/93) | 只改文档；未启动任何工作流 | 所有者合并即确认；之后等 11-30 的 2.3 核对。 |
 | 2026-11-18 | Claude Code | 所有者决定等待期间不闲置、在不影响结果的前提下推进后续阶段。写决策 0020：可以提前做 Phase 4 的拆分、信号接口、成本模型、模拟器核心，以及 Phase 5 的假说卡草稿；组合模型、风险模型、边际贡献检验、任何探索或注册、Phase 6 至 8 现在不做，各写明原因。 | 基准 `673752fb87375c135198307acb6dca69d24786e3`；[PR #94](https://github.com/zhihong1357/finance-research/pull/94) | 只改文档；未启动任何工作流 | 合并后做 4.0。 |
 | 2026-11-18 | Claude Code | 决策 0020 随 PR #94 合并。做 Phase 4.0：拆成 4.0 至 4.9，4.1 至 4.4 在等待期间做；核对了 Bybit、Binance 的手续费、资金费的结算方式和冲击成本的平方根定律。 | 基准 `8f69beae30ab45d54709db5844a353f9972310c6`；[PR #95](https://github.com/zhihong1357/finance-research/pull/95) | 只改文档；未启动任何工作流 | 合并后做 4.1。 |
+| 2026-11-18 | Claude Code | 4.0 随 PR #95 合并。做 4.1：信号的声明和输出；信号只能通过停在决策时刻的时点视图取数据，越界即被拒绝；新的 `signals/` 包和研究受同样的结构检查。 | 基准 `3a8175327fb99121eb6a74bcb9a20e95657cdab7`；分支 `claude/blissful-goodall-b5rewq`；拉取请求待创建 | 本地跑了 ruff、pyright、pytest（866 个通过）；只新增文件（另扩展了结构测试）和改文档；未启动任何工作流 | 合并后做 4.2。 |

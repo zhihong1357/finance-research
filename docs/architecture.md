@@ -353,6 +353,7 @@ src/finresearch/
   sources/     数据源：抓取原始响应，解析成时点表
   registry/    注册表的格式、账本、校验
   studies/     研究：只拿到时点查询接口和配置
+  signals/     具体的信号：和研究一样，只拿到时点查询接口和配置
   runner.py    运行框架：运行、记账、标准报告、重现
   verdict.py   判定：规程第 5 节的七项检验，元研究和运行框架共用
   stats/       多重检验、自助法、交叉验证、功效计算
@@ -364,7 +365,7 @@ src/finresearch/
   report/      标准报告的格式
 ```
 
-目前已有的是 `core/`、`data/`、`sources/`（只有合成数据源）、`registry/`、`studies/`（只有细线）、`stats/`（相关系数、蒙特卡洛估计、多重检验校正、带清洗和禁区的交叉验证、夏普的推断、功效计算）、`report/`、`runner.py` 和 `verdict.py`，其余随后续阶段加入。
+目前已有的是 `core/`、`data/`、`sources/`（只有合成数据源）、`registry/`、`studies/`（只有细线）、`stats/`（相关系数、蒙特卡洛估计、多重检验校正、带清洗和禁区的交叉验证、夏普的推断、功效计算）、`report/`、`runner.py`、`verdict.py`、`model/`（信号接口）和 `signals/`（具体的信号，目前为空，和研究受同样的结构检查），其余随后续阶段加入。
 
 约定：
 
