@@ -6,6 +6,7 @@ import pytest
 from finresearch.meta.bench import BenchError, bench_config, family_world, run_family
 from finresearch.meta.cheats import (
     CheatsConfig,
+    blockers,
     cheats_config,
     logged_trials,
     rates,
@@ -13,6 +14,7 @@ from finresearch.meta.cheats import (
     window_bounds,
 )
 from finresearch.meta.noise import noise_model
+from finresearch.stats.sharpe import moments, probabilistic_sharpe
 
 SMALL = {
     "instruments": 8,
@@ -61,15 +63,34 @@ def test_ranked_starts_with_the_kept_variant() -> None:
     assert sorted(order) == list(range(len(w.variants)))
 
 
-def test_rates_by_hand() -> None:
+def _row(
+    t: float, dsr: float, passed: bool, fresh: float, failed: tuple[str, ...]
+) -> dict[str, object]:
+    claim = {
+        "t": t,
+        "dsr": dsr,
+        "passed": passed,
+        "dsr_fresh": fresh,
+        "passed_fresh": not failed,
+        "failed_fresh": list(failed),
+    }
+    return {"claims": {"honest": claim}}
+
+
+def test_rates_and_blockers_by_hand() -> None:
     rows = [
-        {"claims": {"honest": {"t": 2.1, "dsr": 0.2, "passed": False}}},
-        {"claims": {"honest": {"t": 3.2, "dsr": 0.97, "passed": True}}},
-        {"claims": {"honest": {"t": -1.0, "dsr": 0.0, "passed": False}}},
+        _row(2.1, 0.2, False, 0.90, ("dsr", "t_stat")),
+        _row(3.2, 0.97, True, 0.99, ()),
+        _row(3.1, 0.3, False, 0.98, ("pbo",)),
+        _row(-1.0, 0.0, False, 0.10, ("dsr", "segments", "t_stat")),
     ]
     r = rates(rows, (2.0, 3.0), 0.95)["honest"]
-    assert (r["t >= 2"].hits, r["t >= 3"].hits, r["dsr >= 0.95"].hits) == (2, 1, 1)
-    assert (r["pipeline"].hits, r["pipeline"].n) == (1, 3)
+    assert (r["t >= 2"].hits, r["t >= 3"].hits, r["dsr >= 0.95"].hits) == (3, 2, 1)
+    assert (r["pipeline"].hits, r["pipeline"].n) == (1, 4)
+    # fixed gate: three fresh probabilities reach 0.95; two claims pass the whole verdict
+    assert (r["fresh dsr >= 0.95"].hits, r["pipeline (fresh dsr)"].hits) == (2, 1)
+    # among claims with t >= 3 (rows 2 and 3) only PBO stopped one
+    assert blockers(rows, "honest", 3.0) == {"pbo": 1}
 
 
 # ---------------------------------------------------------------- the claims
@@ -83,6 +104,22 @@ def test_the_honest_claim_is_the_bench() -> None:
         assert honest.t == trial.t_nonoverlapping
         assert honest.dsr == trial.dsr
         assert honest.passed == trial.verdict_nonoverlapping.passed
+
+
+def test_the_fixed_gate_takes_the_confirmation_against_zero() -> None:
+    # The confirmation is a fresh test, so the fixed gate is its probabilistic Sharpe ratio
+    # against 0. That is never below the same ratio against the family's expected best (a
+    # benchmark of at least 0), and the fixed verdict passes exactly when no check failed.
+    cfg = bench_config(**SMALL, cost=0.0)
+    for seed in range(4):
+        claims = run_cheats(cfg, CC, noise_model(), random.Random(seed), random.Random(seed))
+        world = family_world(cfg, noise_model(), random.Random(seed))
+        mo = moments(world.confirmation(world.variants[world.best]).net)
+        expected = probabilistic_sharpe(mo.sharpe, 0.0, mo.n, mo.skew, mo.kurt)
+        assert claims["honest"].dsr_fresh == expected
+        for c in claims.values():
+            assert c.dsr_fresh >= c.dsr
+            assert c.passed_fresh == (not c.failed_fresh)
 
 
 def test_no_cheat_reports_less_than_the_honest_researcher() -> None:
