@@ -109,7 +109,8 @@ def test_stress_scenario_by_hand() -> None:
 
 
 def test_one_call_gives_every_scenario() -> None:
-    results = simulate_all(BARS, ORDERS, FUNDING, MARKETS, MINUTE)
+    # no cash behind the trades: a profit-and-loss ledger, no margin account (test_margin.py)
+    results = simulate_all(BARS, ORDERS, FUNDING, MARKETS, MINUTE, with_margin=False)
     assert set(results) == {(c, f) for c in Scenario for f in FillScenario}
     equity = {k: r.equity[-1][1] for k, r in results.items()}
     # Conservative fills: without costs the round trip makes 205.8 - 202 = 3.8;
@@ -138,7 +139,7 @@ def test_stress_is_not_a_bound_on_the_result() -> None:
         Bar("BTC", t(2), 99.5, 99.5, 89.0, 90.0),
     ]
     order = Order(t(0), "BTC", 2.0, OrderKind.LIMIT, limit_price=99.0)
-    results = simulate_all(bars, [order], [], MARKETS, MINUTE)
+    results = simulate_all(bars, [order], [], MARKETS, MINUTE, with_margin=False)
     conservative = results[(Scenario.NORMAL, FillScenario.CONSERVATIVE)].equity[-1][1]
     stress = results[(Scenario.NORMAL, FillScenario.STRESS)].equity[-1][1]
     assert conservative == pytest.approx(-18.0396)
