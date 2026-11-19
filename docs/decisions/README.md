@@ -32,3 +32,4 @@
 | [0024](0024-meta-research-bench.md) | 元研究模拟台的设计：模拟什么、怎样挑、交给判定函数什么 | 已采纳 |
 | [0025](0025-expected-maximum-of-trials.md) | 试验次数的折损：直接算"相关试验里最好那个的预期值" | 已采纳 |
 | [0026](0026-owner-interface.md) | 所有者怎样使用系统：使用手册、固定格式的简报、Telegram 单向通知 | 已采纳 |
+| [0027](0027-momentum-control-on-forward-data.md) | 阳性对照 (b) 横截面动量改在前向数据上检验 | 已采纳 |
