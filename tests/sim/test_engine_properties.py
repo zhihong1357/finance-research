@@ -91,17 +91,32 @@ World = tuple[list[Bar], list[Order], list[FundingEvent]]
 def test_no_fill_breaks_the_rules(world: World, fill: FillScenario) -> None:
     path, os, _ = world
     rules = fill_rules(fill)
+    assert rules.max_wait_bars is not None
     by_key = {(b.instrument, b.start): b for b in path}
     for f in run(world, fill).fills:
         order, bar = os[f.order], by_key[(f.instrument, f.at)]
-        assert f.at >= order.decided_at + rules.latency  # never before the latency has passed
-        if order.expires_at is not None:  # a limit order needs the whole bar before its expiry
-            last = f.at if order.kind is OrderKind.MARKET else f.at + MINUTE
-            assert last <= order.expires_at
+        active = order.decided_at + rules.latency
+        assert f.at >= active  # never before the latency has passed
+        # the order's expiry, or max_wait_bars after it is active; a resting limit order needs the
+        # whole bar before it, a taker only the open
+        expiry = order.expires_at or active + rules.max_wait_bars * MINUTE
+        assert (f.at if f.liquidity is Liquidity.TAKER else f.at + MINUTE) <= expiry
+        first_bar = min(b.start for b in path if b.instrument == f.instrument and b.start >= active)
         if order.kind is OrderKind.MARKET:
             assert (f.price, f.liquidity, f.quantity) == (bar.open, Liquidity.TAKER, order.quantity)
+        elif f.liquidity is Liquidity.TAKER:  # a limit order through at its first open takes there
+            assert order.limit_price is not None
+            assert f.at == first_bar
+            assert (f.price, f.quantity) == (bar.open, order.quantity)
+            assert (
+                (f.price < order.limit_price)
+                if order.quantity > 0
+                else (f.price > order.limit_price)
+            )
         else:
             assert order.limit_price is not None
+            if f.at == first_bar:  # resting from its first bar: that bar did not open through
+                assert (bar.open >= f.price) if order.quantity > 0 else (bar.open <= f.price)
             assert f.price == order.limit_price
             assert f.liquidity is Liquidity.MAKER
             assert (

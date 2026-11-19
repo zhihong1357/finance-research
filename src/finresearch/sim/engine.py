@@ -10,7 +10,7 @@ Fill rules (``FillRules``, from ``config/simulator.toml``):
 - An order decided at ``t`` becomes active at ``t + latency`` and can only fill
   on a bar that starts at or after that instant (decision 0012).
 - **Market order**: fills on the first such bar at its open, so that bar must
-  start by ``expires_at`` if the order has one. Fee (taker), half the spread
+  start by the order's expiry (below). Fee (taker), half the spread
   and impact are booked as costs (``sim.costs``); impact is further multiplied
   by the scenario's ``impact_multiplier``.
 - **Impact is charged per metaorder** (``sim.costs``): a market fill continues
@@ -18,13 +18,26 @@ Fill rules (``FillRules``, from ``config/simulator.toml``):
   the cost model's ``metaorder_window`` of that metaorder's first fill, and
   then pays only the impact it adds. Otherwise it starts a new one. Splitting
   an order, in one bar or over several, saves no impact.
+- **Limit order that can fill the moment it is active** (prior-art L2): if the
+  first bar it can trade on already *opens* through the limit (a buy opening
+  below it, a sell above), it would not rest in the book but take liquidity at
+  once. It is filled like a market order: all of it, at that open, as a taker
+  (taker fee, half the spread, impact). Only that first bar counts; a gap
+  through the limit on a later bar is an ordinary resting fill (next rule).
+  The open plus costs may come out beyond the limit, where a real order would
+  fill only in part; that edge is ignored (the open alone respects the limit).
 - **Limit order**: fills only if the price trades *through* the limit, not just
   touches it: a buy when the bar's low is below the limit, a sell when its high
   is above. It fills at the limit even if the bar opened better, pays the maker
   fee and no spread or impact, and fills ``limit_fill_fraction`` of its size;
-  the rest is cancelled. Only a bar that *ends* by ``expires_at`` can fill it:
-  a bar cannot say whether its high or low came before or after an instant
+  the rest is cancelled. Only a bar that *ends* by the order's expiry can fill
+  it: a bar cannot say whether its high or low came before or after an instant
   inside it, so a bar that straddles the expiry does not count.
+- **Expiry**: ``expires_at`` if the order has one. If not, and the fill rules
+  give a ``max_wait_bars`` (prior-art L4), the order expires ``max_wait_bars``
+  bar lengths after it becomes active (``decided_at + latency``), so it cannot
+  fill long after the decision on a price that no longer bears on it (Bybit has
+  no bar for a minute without trades). Expired orders are left unfilled.
 - **Funding** at instant ``T`` is settled on the position held before any fill
   at ``T``: settlements are processed before bars that start at ``T``. A limit
   fill is booked at its bar's start but may have come at any moment of the bar,
@@ -32,6 +45,36 @@ Fill rules (``FillRules``, from ``config/simulator.toml``):
   more (or earns less) than leaving it out: the worse of the two. A market fill
   happens at the open, before anything inside the bar. The cash
   moved is ``sim.costs.funding_cash(position x mark price, rate)``.
+
+Margin and liquidation (step 4.3b; ``sim.margin``), when a margin model is
+given. The account is one cross-margin account. After each bar's market fills
+(at its open, certain) and again after its resting fills (somewhere in the bar),
+the bar's instrument is checked against the price least favourable to the
+position: a long at the bar's low, a short at its high, every other position at
+its latest close. Exchanges trigger on the mark price, which is smoother than
+traded prices; the bar's extreme triggers no later than the mark would, and the
+data keep only each minute's closing mark (decision 0010). If equity at that
+price is below the maintenance margin, the account is liquidated:
+
+- If the check before the resting fills triggers, those fills are undone (the
+  orders are left unfilled): the bar cannot say whether they came first.
+- The bar's instrument is closed at a price worse than or equal to its trigger
+  price: the trigger price itself, or the open if the bar opened beyond it (a
+  gap); the stress fill rules (``liquidate_at_extreme``) use the bar's low or
+  high instead. Every other position is closed at its latest close. Each close
+  pays taker costs (``sim.costs``, impact scaled as for a market order) and the
+  exchange's liquidation fee rate on its notional; the fee comes out of what
+  is left, so it never takes equity below zero by itself (Binance: the fee is
+  deducted from the remaining assets).
+- **Through zero.** If the closing trades leave equity negative (a gap far
+  beyond the trigger), the negative cash is kept. Exchanges have an insurance
+  fund that usually absorbs such a loss and leave the trader at zero; the
+  simulator books the loss anyway, which can only make a result worse, and
+  ``Result.liquidation.bankrupt`` says it happened.
+- A liquidation ends the run's trading: every pending order is left unfilled,
+  and the equity curve carries the cash on to the end. A funding settlement
+  inside the liquidation's bar is booked on the worse of the position before
+  and after it (as for a resting fill).
 
 Accounting: cash starts at ``initial_cash``; a fill of ``q`` at ``p`` moves cash
 by ``-q p`` and the costs. Equity is marked at each bar end ``E``: cash plus
@@ -70,6 +113,7 @@ from finresearch.sim.costs import (
     all_scenarios,
     funding_cash,
 )
+from finresearch.sim.margin import MarginModel, maintenance_margin, margin_model, trigger_price
 
 _UTC_OFFSET = timedelta(0)
 _FUNDING, _BAR = 0, 1  # at the same instant, funding is settled before bars are traded
@@ -94,8 +138,12 @@ class FillRules:
     latency: timedelta
     limit_fill_fraction: float
     impact_multiplier: float
+    max_wait_bars: int | None = None  # how long an order without an expiry may wait, once active
+    liquidate_at_extreme: bool = False  # liquidations at the bar's low or high, not the trigger
 
     def __post_init__(self) -> None:
+        if self.max_wait_bars is not None and self.max_wait_bars < 1:
+            raise SimulationError(f"max wait must be at least one bar, got {self.max_wait_bars}")
         if self.latency < timedelta(0):
             raise SimulationError(f"latency must not be negative, got {self.latency}")
         if not 0.0 < self.limit_fill_fraction <= 1.0:
@@ -111,10 +159,13 @@ class FillRules:
 def fill_rules(scenario: FillScenario, config: Mapping[str, Any] | None = None) -> FillRules:
     """The fill rules of ``scenario``, from ``config/simulator.toml`` unless ``config`` is given."""
     cfg = (load_toml("simulator") if config is None else config)[scenario.value]
+    wait = cfg.get("max_wait_bars")
     return FillRules(
         timedelta(seconds=float(cfg["latency_seconds"])),
         float(cfg["limit_fill_fraction"]),
         float(cfg["impact_multiplier"]),
+        None if wait is None else int(wait),
+        bool(cfg.get("liquidate_at_extreme", False)),
     )
 
 
@@ -176,6 +227,23 @@ class FundingPaid:
     cash: float
 
 
+@dataclass(frozen=True, slots=True)
+class Liquidation:
+    at: datetime  # start of the bar it happened in
+    instrument: str  # the instrument whose bar triggered it
+    trigger: float  # its trigger price
+    price: float  # the price it was closed at
+    closed: dict[str, float]  # every position closed, as it was
+    costs: float  # taker costs of the closing trades
+    fee: float  # liquidation fee charged, after the cap at zero equity
+    cash: float  # cash after it, also the equity: every position is closed
+
+    @property
+    def bankrupt(self) -> bool:
+        """The closing trades lost more than the account had (kept, not absorbed)."""
+        return self.cash < 0.0
+
+
 @dataclass(slots=True)
 class Result:
     fills: list[Fill] = field(default_factory=lambda: list[Fill]())
@@ -186,6 +254,7 @@ class Result:
     equity: list[tuple[datetime, float]] = field(
         default_factory=lambda: list[tuple[datetime, float]]()
     )
+    liquidation: Liquidation | None = None
 
     @property
     def costs(self) -> float:
@@ -271,12 +340,21 @@ def _limit_fills(order: Order, bar: Bar) -> bool:
     return bar.low < limit if order.quantity > 0.0 else bar.high > limit
 
 
-def _expired(order: Order, bar: Bar, bar_length: timedelta) -> bool:
-    """Too late for this bar: a market order fills at its open, a limit order needs all of it."""
-    if order.expires_at is None:
-        return False
-    last_instant = bar.start if order.kind is OrderKind.MARKET else bar.start + bar_length
-    return last_instant > order.expires_at
+def _opens_through(order: Order, bar: Bar) -> bool:
+    """The bar opens through the limit: the order can take liquidity at once."""
+    limit = _limit(order)
+    return bar.open < limit if order.quantity > 0.0 else bar.open > limit
+
+
+def _expiry(order: Order, rules: FillRules, bar_length: timedelta) -> datetime | None:
+    """The order's own expiry, else ``max_wait_bars`` bar lengths after it becomes active."""
+    if order.expires_at is not None or rules.max_wait_bars is None:
+        return order.expires_at
+    return order.decided_at + rules.latency + rules.max_wait_bars * bar_length
+
+
+def _too_late(expiry: datetime | None, last_instant: datetime) -> bool:
+    return expiry is not None and last_instant > expiry
 
 
 @dataclass(slots=True)
@@ -295,8 +373,13 @@ def simulate(
     rules: FillRules,
     bar_length: timedelta,
     initial_cash: float = 0.0,
+    margin: MarginModel | None = None,
 ) -> Result:
-    """Run the orders against the bars and settle funding (rules: the module docstring)."""
+    """Run the orders against the bars and settle funding (rules: the module docstring).
+
+    Without ``margin`` there is no margin check: cash may go negative without
+    limit, a profit-and-loss ledger rather than an account.
+    """
     _validate(bars, orders, funding, markets, bar_length, initial_cash)
     result = Result(cash=initial_cash)
     pending = sorted(range(len(orders)), key=lambda i: (orders[i].decided_at, i))
@@ -304,10 +387,59 @@ def simulate(
     metaorders: dict[str, _Metaorder] = {}
     mark_due: datetime | None = None  # a bar end whose equity point is not yet taken
     in_bar: dict[str, list[tuple[datetime, float]]] = {}  # limit fills: (their bar's end, quantity)
+    seen: set[int] = set()  # orders that have had their first bar
 
     def mark(at: datetime) -> None:
         value = math.fsum(q * closes[name] for name, q in result.positions.items())
         result.equity.append((at, result.cash + value))
+
+    def take(instrument: str, notional: float) -> TradeCost:
+        """Taker costs of a closing trade, a metaorder of its own."""
+        m = markets[instrument]
+        base = costs.trade(
+            m.exchange,
+            notional,
+            Liquidity.TAKER,
+            half_spread=m.half_spread,
+            daily_volume=m.daily_volume,
+            daily_vol=m.daily_vol,
+        )
+        return TradeCost(base.fee, base.spread, base.impact * rules.impact_multiplier)
+
+    def trigger(model: MarginModel, bar: Bar, position: float, cash: float) -> float | None:
+        """The trigger price of ``bar``'s instrument if its extreme crosses it, else None."""
+        others = [(n, q) for n, q in result.positions.items() if n != bar.instrument and q != 0.0]
+        rest = cash + math.fsum(q * closes[n] for n, q in others)
+        mm_rest = math.fsum(
+            maintenance_margin(q * closes[n], model.tiers(markets[n].exchange, n))
+            for n, q in others
+        )
+        tiers = model.tiers(markets[bar.instrument].exchange, bar.instrument)
+        price = trigger_price(position, rest, mm_rest, tiers)
+        crossed = bar.low < price if position > 0.0 else bar.high > price
+        return price if crossed else None
+
+    def liquidate(model: MarginModel, bar: Bar, trigger_at: float) -> None:
+        position = result.positions[bar.instrument]
+        if rules.liquidate_at_extreme:
+            price = bar.low if position > 0.0 else bar.high
+        else:  # the trigger price, or the open if the bar gapped beyond it
+            price = min(bar.open, trigger_at) if position > 0.0 else max(bar.open, trigger_at)
+        closed = {n: q for n, q in result.positions.items() if q != 0.0}
+        paid, due = 0.0, 0.0
+        for n, q in closed.items():
+            notional = -q * (price if n == bar.instrument else closes[n])
+            cost = take(n, notional)
+            result.cash -= notional + cost.total
+            paid += cost.total
+            due += model.fee(markets[n].exchange, notional)
+            result.positions[n] = 0.0
+        fee = min(due, max(result.cash, 0.0))  # out of what is left, never below zero
+        result.cash -= fee
+        in_bar[bar.instrument].append((bar.start + bar_length, -position))
+        result.liquidation = Liquidation(
+            bar.start, bar.instrument, trigger_at, price, closed, paid, fee, result.cash
+        )
 
     events: list[tuple[datetime, int, int]] = [(f.at, _FUNDING, k) for k, f in enumerate(funding)]
     events += [(b.start, _BAR, k) for k, b in enumerate(bars)]
@@ -332,16 +464,22 @@ def simulate(
             continue
         bar = bars[k]
         in_bar[bar.instrument] = []  # the instrument's earlier bars have ended (one grid)
+        resting: list[int] = []  # this bar's resting fills, as indices into result.fills
         still: list[int] = []
         for i in pending:
             o = orders[i]
             if o.instrument != bar.instrument or o.decided_at + rules.latency > bar.start:
                 still.append(i)
                 continue
-            if _expired(o, bar, bar_length):
+            first = i not in seen
+            seen.add(i)
+            expiry = _expiry(o, rules, bar_length)
+            # a market order, or a limit order already through at its first open, takes at the open
+            takes = o.kind is OrderKind.MARKET or (first and _opens_through(o, bar))
+            if _too_late(expiry, bar.start if takes else bar.start + bar_length):
                 result.unfilled.append(i)
                 continue
-            if o.kind is OrderKind.MARKET:
+            if takes:
                 quantity, price, liquidity = o.quantity, bar.open, Liquidity.TAKER
             elif _limit_fills(o, bar):
                 quantity, price = o.quantity * rules.limit_fill_fraction, _limit(o)
@@ -382,7 +520,26 @@ def simulate(
             result.fills.append(Fill(i, bar.start, o.instrument, quantity, price, liquidity, cost))
             if liquidity is Liquidity.MAKER:
                 in_bar[o.instrument].append((bar.start + bar_length, quantity))
+                resting.append(len(result.fills) - 1)
         pending = still
+        if margin is not None and result.liquidation is None:
+            made = [result.fills[j] for j in resting]
+            after = result.positions.get(bar.instrument, 0.0)
+            before = after - math.fsum(f.quantity for f in made)
+            cash_before = result.cash + math.fsum(f.quantity * f.price + f.cost.total for f in made)
+            hit = trigger(margin, bar, before, cash_before) if before != 0.0 else None
+            if hit is not None and made:  # liquidated before the resting fills could come
+                for j in reversed(resting):
+                    result.unfilled.append(result.fills.pop(j).order)
+                result.positions[bar.instrument] = before
+                result.cash = cash_before
+                in_bar[bar.instrument] = []
+            elif hit is None and made and after != 0.0:
+                hit = trigger(margin, bar, after, result.cash)
+            if hit is not None:
+                liquidate(margin, bar, hit)
+                result.unfilled.extend(pending)  # a liquidation ends the run's trading
+                pending = []
         closes[bar.instrument] = bar.close
         end = bar.start + bar_length
         mark_due = end if mark_due is None else max(mark_due, end)
@@ -403,9 +560,14 @@ def simulate_all(
     initial_cash: float = 0.0,
     cost_config: Mapping[str, Any] | None = None,
     fill_config: Mapping[str, Any] | None = None,
+    with_margin: bool = True,
 ) -> dict[tuple[Scenario, FillScenario], Result]:
-    """Every cost scenario under every fill scenario."""
+    """Every cost scenario under every fill scenario, with the margin model of ``fill_config``.
+
+    ``with_margin=False`` runs a profit-and-loss ledger without margin checks.
+    """
     cost_models = all_scenarios(cost_config)
+    margin = margin_model(fill_config) if with_margin else None
     return {
         (cs, fs): simulate(
             bars,
@@ -416,6 +578,7 @@ def simulate_all(
             fill_rules(fs, fill_config),
             bar_length,
             initial_cash,
+            margin,
         )
         for cs in Scenario
         for fs in FillScenario
