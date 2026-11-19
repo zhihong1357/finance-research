@@ -351,3 +351,76 @@ def test_invalid_inputs_are_refused() -> None:
             FillScenario.STRESS,
             {"stress": {"latency_seconds": 1, "limit_fill_fraction": 0, "impact_multiplier": 1}},
         )
+
+
+# ---------------------------------------------------------------- funding inside a limit fill's bar
+DAY = timedelta(days=1)
+DAILY = [
+    Bar("BTC", utc(2026, 1, 1), 100.0, 100.0, 100.0, 100.0),
+    Bar("BTC", utc(2026, 1, 2), 100.0, 101.0, 99.0, 100.0),
+    Bar("BTC", utc(2026, 1, 3), 100.0, 100.0, 100.0, 100.0),
+]
+
+
+def _daily(orders: list[Order], rate: float) -> Result:
+    # one settlement at 08:00 inside the 2 January bar, mark price 100
+    funding = [FundingEvent("BTC", utc(2026, 1, 2, 8), rate=rate, mark_price=100.0)]
+    return simulate(
+        DAILY,
+        orders,
+        funding,
+        MARKETS,
+        cost_model(Scenario.NORMAL),
+        fill_rules(FillScenario.CONSERVATIVE),
+        DAY,
+    )
+
+
+def test_a_limit_fill_is_not_assumed_to_beat_funding_inside_its_bar() -> None:
+    # A sell limit at 100.5 fills in the 2 January bar (high 101), at an unknown time of day.
+    # With +1% funding at 08:00 a short receives 10 x 100 x 1% = 10.0 if it was already short,
+    # nothing if it was not: the worse of the two, nothing, is booked.
+    sell = Order(utc(2026, 1, 1), "BTC", -10.0, OrderKind.LIMIT, limit_price=100.5)
+    r = _daily([sell], 0.01)
+    assert len(r.fills) == 1
+    assert r.funding == []
+    # with -1% funding the short would pay 10.0 if it was already short: that is booked
+    (paid,) = _daily([sell], -0.01).funding
+    assert (paid.position, paid.cash) == (-10.0, pytest.approx(-10.0))
+
+
+def test_a_limit_fill_that_closes_a_position_does_not_dodge_funding() -> None:
+    # Long 10 from the 1 January open (a market order decided at 23:58, active at 23:59), then a
+    # sell limit at 100.5 closes it somewhere in the 2 January bar. +1% funding at 08:00: the long
+    # pays 10.0 if it was still open, nothing if not; the worse, paying, is booked.
+    buy = Order(utc(2025, 12, 31, 23, 58), "BTC", 10.0)
+    close = Order(utc(2026, 1, 1), "BTC", -10.0, OrderKind.LIMIT, limit_price=100.5)
+    r = _daily([buy, close], 0.01)
+    assert [f.liquidity for f in r.fills] == [Liquidity.TAKER, Liquidity.MAKER]
+    assert r.positions == {"BTC": 0.0}
+    (paid,) = r.funding
+    assert (paid.position, paid.cash) == (10.0, pytest.approx(-10.0))
+
+
+def test_a_market_fill_at_the_open_is_certain_before_funding() -> None:
+    # a market order fills at the bar's open, before 08:00 for sure: the short receives 10.0
+    sell = Order(utc(2025, 12, 31, 23, 58), "BTC", -10.0)
+    (paid,) = _daily([sell], 0.01).funding
+    assert (paid.position, paid.cash) == (-10.0, pytest.approx(10.0))
+
+
+def test_funding_at_the_end_of_a_limit_fills_bar_counts_the_fill() -> None:
+    # a settlement exactly when the fill's bar ends comes after the fill, whenever in the bar
+    sell = Order(utc(2026, 1, 1), "BTC", -10.0, OrderKind.LIMIT, limit_price=100.5)
+    funding = [FundingEvent("BTC", utc(2026, 1, 3), rate=0.01, mark_price=100.0)]
+    r = simulate(
+        DAILY,
+        [sell],
+        funding,
+        MARKETS,
+        cost_model(Scenario.NORMAL),
+        fill_rules(FillScenario.CONSERVATIVE),
+        DAY,
+    )
+    (paid,) = r.funding
+    assert (paid.position, paid.cash) == (-10.0, pytest.approx(10.0))
