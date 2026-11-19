@@ -35,6 +35,9 @@ strengths = [0.02, 0.05, 0.1]   # 植入强度（以品种自身波动为单位�
 years = [1, 2, 4, 8]     # 数据长度（年）
 days_per_year = 365      # 加密市场每天交易
 workers = 4              # 并行进程数
+# 更粗糙的噪声（--rough）：两种模式、不计成本，平稳噪声和下面每种成分各跑 rough_runs 次，种子与上面不计成本的两种设置相同
+rough_runs = 300
+rough_settings = [["regimes"], ["jumps"], ["delisting"], ["regimes", "jumps", "delisting"]]
 
 [cheats]
 # 作弊的研究者（3.12 的延伸，src/finresearch/meta/cheats.py）：同一个噪声世界里，诚实的做法和各种违规做法各报告什么。

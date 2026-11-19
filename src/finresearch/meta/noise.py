@@ -19,6 +19,28 @@ Every mean is zero: no instrument, factor or combination has an edge. The
 parameters live in ``config/noise.toml`` (illustrative until step 3.14
 calibrates them on the U1 exploration segment).
 
+**Rougher noise** (three optional parts, ``config/noise.toml``, all off by
+default; off, ``generate`` draws and returns exactly what it did before they
+existed). They are drawn after the GARCH paths above, from the same generator:
+
+- **regimes**: a two-state Markov chain (Hamilton 1989), calm and turbulent,
+  started from its stationary distribution. In the turbulent state the
+  factor's volatility is ``factor_ratio`` and the instruments' own
+  ``idiosyncratic_ratio`` times the calm one, so a factor ratio above the own
+  ratio raises the correlation between instruments; the calm multipliers are
+  scaled so that the unconditional variance of each part is unchanged;
+- **jumps**: on any day, with probability ``factor_probability`` the factor
+  and with ``idiosyncratic_probability`` each instrument jumps by ``scale``
+  times a unit-variance t draw (``dof``): fat tailed, symmetric, mean zero;
+- **delisting**: each instrument leaves for good on a day drawn
+  geometrically with daily probability ``hazard``; from that day its returns
+  are NaN.
+
+None of them gives an edge: regimes and delisting are drawn independently of
+every shock, the jumps independently of everything, and every part is
+symmetric around zero, so the expected return given any past is still zero.
+Volatility stays predictable (as with GARCH); the mean does not.
+
 ``fit`` goes the other way, from returns to parameters, in two steps:
 
 1. The cross-sectional mean stands in for the factor and each instrument's
@@ -82,12 +104,92 @@ class Garch:
 
 
 @dataclass(frozen=True)
+class Regimes:
+    to_turbulent: float  # daily probability of leaving the calm state
+    to_calm: float  # daily probability of leaving the turbulent state
+    factor_ratio: float  # turbulent / calm volatility of the factor
+    idiosyncratic_ratio: float  # likewise for the instruments' own parts
+
+    def __post_init__(self) -> None:
+        if not (0.0 < self.to_turbulent <= 1.0 and 0.0 < self.to_calm <= 1.0):
+            raise NoiseError(f"switching probabilities must be in (0, 1], got {self}")
+        if not (self.factor_ratio > 0.0 and self.idiosyncratic_ratio > 0.0):
+            raise NoiseError(f"volatility ratios must be positive, got {self}")
+
+    @property
+    def turbulent_share(self) -> float:
+        """The stationary probability of the turbulent state: ``p / (p + q)``."""
+        return self.to_turbulent / (self.to_turbulent + self.to_calm)
+
+    def multipliers(self, ratio: float) -> tuple[float, float]:
+        """Calm and turbulent volatility multipliers with unit mean square."""
+        pi = self.turbulent_share
+        calm = 1.0 / math.sqrt(1.0 - pi + pi * ratio * ratio)
+        return calm, ratio * calm
+
+    def path(self, periods: int, rng: random.Random) -> list[bool]:
+        """``True`` on turbulent days, starting from the stationary distribution."""
+        turbulent = rng.random() < self.turbulent_share
+        out: list[bool] = []
+        for _ in range(periods):
+            out.append(turbulent)
+            turbulent = (
+                rng.random() >= self.to_calm if turbulent else rng.random() < self.to_turbulent
+            )
+        return out
+
+
+@dataclass(frozen=True)
+class Jumps:
+    factor_probability: float  # daily
+    idiosyncratic_probability: float  # daily, each instrument
+    factor_scale: float  # standard deviation of a factor jump
+    idiosyncratic_scale: float
+    dof: float  # of the unit-variance t jump sizes
+
+    def __post_init__(self) -> None:
+        probabilities = (self.factor_probability, self.idiosyncratic_probability)
+        if not all(0.0 <= p <= 1.0 for p in probabilities):
+            raise NoiseError(f"jump probabilities must be in [0, 1], got {self}")
+        if not (self.factor_scale >= 0.0 and self.idiosyncratic_scale >= 0.0):
+            raise NoiseError(f"jump scales must not be negative, got {self}")
+        if not self.dof > _MIN_DOF:
+            raise NoiseError(f"jump sizes need more than {_MIN_DOF} degrees of freedom")
+
+    def path(
+        self, probability: float, scale: float, periods: int, rng: random.Random
+    ) -> list[float]:
+        """Each day 0, or with ``probability`` a jump of ``scale`` x a unit-variance t."""
+        return [
+            scale * standard_t(self.dof, rng) if rng.random() < probability else 0.0
+            for _ in range(periods)
+        ]
+
+
+@dataclass(frozen=True)
+class Delisting:
+    hazard: float  # daily probability that a listed instrument leaves
+
+    def __post_init__(self) -> None:
+        if not 0.0 < self.hazard < 1.0:
+            raise NoiseError(f"the delisting hazard must be in (0, 1), got {self.hazard}")
+
+    def day(self, rng: random.Random) -> int:
+        """The first day without a return: geometric, ``floor(log U / log(1 - hazard))``."""
+        u = 1.0 - rng.random()  # in (0, 1]
+        return math.floor(math.log(u) / math.log1p(-self.hazard))
+
+
+@dataclass(frozen=True)
 class NoiseModel:
     factor: Garch
     idiosyncratic: Garch
     loading_mean: float
     loading_spread: float
     burn_in: int
+    regimes: Regimes | None = None
+    jumps: Jumps | None = None
+    delisting: Delisting | None = None
 
     def loadings(self, instruments: int) -> list[float]:
         """Evenly spaced over ``mean +/- spread`` (just the mean for one instrument)."""
@@ -108,19 +210,54 @@ def _garch(section: Mapping[str, Any]) -> Garch:
     )
 
 
+def _enabled(cfg: Mapping[str, Any], name: str) -> Mapping[str, Any] | None:
+    section = cfg.get(name)
+    return section if section is not None and bool(section["enabled"]) else None
+
+
 def noise_model(config: Mapping[str, Any] | None = None) -> NoiseModel:
     """The model in ``config/noise.toml`` unless ``config`` is given."""
     cfg = load_toml("noise") if config is None else config
     burn_in = int(cfg["simulation"]["burn_in"])
     if burn_in < 0:
         raise NoiseError(f"burn-in must not be negative, got {burn_in}")
+    r, j, d = _enabled(cfg, "regimes"), _enabled(cfg, "jumps"), _enabled(cfg, "delisting")
     return NoiseModel(
         _garch(cfg["factor"]),
         _garch(cfg["idiosyncratic"]),
         float(cfg["loadings"]["mean"]),
         float(cfg["loadings"]["spread"]),
         burn_in,
+        None
+        if r is None
+        else Regimes(
+            float(r["to_turbulent"]),
+            float(r["to_calm"]),
+            float(r["factor_ratio"]),
+            float(r["idiosyncratic_ratio"]),
+        ),
+        None
+        if j is None
+        else Jumps(
+            float(j["factor_probability"]),
+            float(j["idiosyncratic_probability"]),
+            float(j["factor_scale"]),
+            float(j["idiosyncratic_scale"]),
+            float(j["dof"]),
+        ),
+        None if d is None else Delisting(float(d["hazard"])),
     )
+
+
+def rough(config: Mapping[str, Any] | None, parts: Sequence[str]) -> NoiseModel:
+    """The model with exactly the optional ``parts`` (regimes, jumps, delisting) switched on."""
+    cfg = dict(load_toml("noise") if config is None else config)
+    for name in ("regimes", "jumps", "delisting"):
+        cfg[name] = {**cfg[name], "enabled": name in parts}
+    unknown = set(parts) - {"regimes", "jumps", "delisting"}
+    if unknown:
+        raise NoiseError(f"unknown noise parts {sorted(unknown)}")
+    return noise_model(cfg)
 
 
 def standard_t(dof: float, rng: random.Random) -> float:
@@ -154,7 +291,8 @@ def generate(
 ) -> list[list[float]]:
     """``returns[i][t]`` for ``instruments`` instruments over ``periods`` periods.
 
-    The loadings are the model's evenly spaced ones unless given.
+    The loadings are the model's evenly spaced ones unless given. With
+    delisting, an instrument's returns are NaN from the day it leaves.
     """
     if periods < 1:
         raise NoiseError(f"need at least one period, got {periods}")
@@ -164,9 +302,53 @@ def generate(
         raise NoiseError(f"need {instruments} loadings, got {len(loadings)}")
     factor = _path(model.factor, periods, model.burn_in, rng)
     out: list[list[float]] = []
+    owns: list[list[float]] = []
     for loading in loadings:
         own = _path(model.idiosyncratic, periods, model.burn_in, rng)
         out.append([loading * f + e for f, e in zip(factor, own, strict=True)])
+        owns.append(own)
+    if model.regimes is None and model.jumps is None and model.delisting is None:
+        return out
+    return _roughen(model, factor, owns, loadings, rng)
+
+
+def _roughen(
+    model: NoiseModel,
+    factor: list[float],
+    own: list[list[float]],
+    loadings: Sequence[float],
+    rng: random.Random,
+) -> list[list[float]]:
+    """Regimes, then jumps, then delisting, drawn in that order from ``rng``."""
+    periods = len(factor)
+    f_scale, e_scale = [1.0] * periods, [1.0] * periods
+    if model.regimes is not None:
+        g = model.regimes
+        f_calm, f_turb = g.multipliers(g.factor_ratio)
+        e_calm, e_turb = g.multipliers(g.idiosyncratic_ratio)
+        states = g.path(periods, rng)
+        f_scale = [f_turb if s else f_calm for s in states]
+        e_scale = [e_turb if s else e_calm for s in states]
+    f_jump, e_jumps = [0.0] * periods, [[0.0] * periods for _ in loadings]
+    if model.jumps is not None:
+        j = model.jumps
+        f_jump = j.path(j.factor_probability, j.factor_scale, periods, rng)
+        e_jumps = [
+            j.path(j.idiosyncratic_probability, j.idiosyncratic_scale, periods, rng)
+            for _ in loadings
+        ]
+    out: list[list[float]] = []
+    for loading, e, ej in zip(loadings, own, e_jumps, strict=True):
+        out.append(
+            [
+                loading * (f_scale[t] * factor[t] + f_jump[t]) + e_scale[t] * e[t] + ej[t]
+                for t in range(periods)
+            ]
+        )
+    if model.delisting is not None:
+        for r in out:
+            for t in range(min(model.delisting.day(rng), periods), periods):
+                r[t] = math.nan
     return out
 
 
