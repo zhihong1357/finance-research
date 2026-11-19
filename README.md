@@ -22,6 +22,7 @@
 | [科研规程](docs/protocol.md) | 一个想法怎样变成结论 |
 | [落地顺序](docs/roadmap.md) | 先做什么，后做什么，各自怎样算完成 |
 | [旧系统中可取用的部分](docs/prior-systems.md) | 旧仓库里还有什么值得取用 |
+| [同类项目可借鉴清单](docs/prior-art.md) | Qlib 和 LEAN 的哪些做法值得借鉴，改哪里，何时改 |
 | [决策记录](docs/decisions/) | 每个关键设计选择的理由和代价 |
 | [术语表](docs/glossary.md) | 文档里的专业词是什么意思 |
 | [开发说明](docs/development.md) | 改动怎样进入仓库，自动检查拦住什么 |
