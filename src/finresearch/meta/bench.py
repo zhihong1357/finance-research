@@ -302,66 +302,165 @@ def _segments(x: Sequence[float], parts: int) -> list[float]:
     return [_mean(x[k * size : (k + 1) * size]) for k in range(parts)]
 
 
-def _confirm(
-    cfg: BenchConfig,
-    exploration: list[list[float]],
-    best: int,
-    conf_net: list[float],
-    conf_gross: list[float],
-    conf_cost: list[float],
-    cohorts: list[float],
-    holding: int,
-    perturbed: list[float],
-    rng: random.Random,
-    names: list[str],
-) -> Trial:
+@dataclass(frozen=True)
+class FamilyStats:
+    """What the family's exploration says, the same for every variant later confirmed."""
+
+    clusters: int  # ONC, describing how the trials group (not used to deflate)
+    benchmark: float  # expected best per-period Sharpe ratio under no edge (decision 0025)
+    equivalent_trials: float  # independent trials with the same expected maximum
+    pbo: float
+
+
+def family_stats(
+    cfg: BenchConfig, exploration: list[list[float]], rng: random.Random
+) -> FamilyStats:
+    """ONC, the no-edge benchmark and PBO of the exploration trials (in that order of draws)."""
     corr = correlation_matrix(exploration)
     clustering = onc(corr, rng, cfg.restarts)
     benchmark = null_benchmark(corr, len(exploration[0]), cfg.draws, rng)
-    mo = moments(conf_net)
-    dsr = probabilistic_sharpe(mo.sharpe, max(0.0, benchmark.value), mo.n, mo.skew, mo.kurt)
     equivalent = equivalent_trials(benchmark.value * math.sqrt(len(exploration[0]) - 1))
     usable = len(exploration[0]) - len(exploration[0]) % cfg.partitions
     pbo = probability_of_overfitting(
         [s[len(s) - usable :] for s in exploration], cfg.partitions, Metric.SHARPE
     ).pbo
-    best_two = sorted(range(len(conf_net)), key=lambda k: conf_net[k])[-_DROPPED:]
-    kept = [v for k, v in enumerate(conf_net) if k not in set(best_two)]
-    segments = _segments(conf_net, cfg.segments)
-    cost_doubled = _mean([g - 2.0 * c for g, c in zip(conf_gross, conf_cost, strict=True)])
+    return FamilyStats(clustering.k, benchmark.value, equivalent, pbo)
 
-    def evidence(t: float) -> Evidence:
-        return Evidence(
-            t=t,
-            dsr=dsr,
-            segments=segments,
-            pbo=pbo,
-            cost_doubled=cost_doubled,
-            without_best_two=_mean(kept),
-            perturbed=perturbed,
-        )
 
-    t_nw = newey_west_t(conf_net, holding - 1)
-    t_no = ordinary_t(cohorts)
+@dataclass(frozen=True)
+class Confirmation:
+    """One strategy run on (part of) the confirmation segment."""
+
+    net: list[float]  # daily P&L after costs
+    gross: list[float]  # daily P&L before costs
+    cost: list[float]  # daily costs
+    cohorts: list[float]  # non-overlapping cohort returns
+    holding: int
+    perturbed: list[float]  # mean daily P&L of the grid's neighbours
+
+    @property
+    def t_newey_west(self) -> float:
+        return newey_west_t(self.net, self.holding - 1)
+
+    @property
+    def t_nonoverlapping(self) -> float:
+        return ordinary_t(self.cohorts)
+
+
+def evidence(cfg: BenchConfig, benchmark: float, pbo: float, c: Confirmation, t: float) -> Evidence:
+    """The seven statistics of ``c`` for ``verdict.judge``, with ``t`` as the t statistic."""
+    mo = moments(c.net)
+    dsr = probabilistic_sharpe(mo.sharpe, max(0.0, benchmark), mo.n, mo.skew, mo.kurt)
+    best_two = set(sorted(range(len(c.net)), key=lambda k: c.net[k])[-_DROPPED:])
+    return Evidence(
+        t=t,
+        dsr=dsr,
+        segments=_segments(c.net, cfg.segments),
+        pbo=pbo,
+        cost_doubled=_mean([g - 2.0 * k for g, k in zip(c.gross, c.cost, strict=True)]),
+        without_best_two=_mean([v for k, v in enumerate(c.net) if k not in best_two]),
+        perturbed=c.perturbed,
+    )
+
+
+def _confirm(
+    cfg: BenchConfig,
+    exploration: list[list[float]],
+    best: int,
+    c: Confirmation,
+    rng: random.Random,
+    names: list[str],
+) -> Trial:
+    stats = family_stats(cfg, exploration, rng)
+    t_nw, t_no = c.t_newey_west, c.t_nonoverlapping
+    e_nw = evidence(cfg, stats.benchmark, stats.pbo, c, t_nw)
+    e_no = evidence(cfg, stats.benchmark, stats.pbo, c, t_no)
     thresholds = Thresholds.defaults()
     return Trial(
         names[best],
         best,
         _sharpe(exploration[best]),
-        clustering.k,
-        equivalent,
-        benchmark.value,
+        stats.clusters,
+        stats.equivalent_trials,
+        stats.benchmark,
         t_nw,
         t_no,
-        dsr,
-        pbo,
-        judge(evidence(t_nw), thresholds),
-        judge(evidence(t_no), thresholds),
+        e_nw.dsr,
+        stats.pbo,
+        judge(e_nw, thresholds),
+        judge(e_no, thresholds),
     )
 
 
-def run_family(cfg: BenchConfig, model: NoiseModel, rng: random.Random) -> Trial:
-    """One researcher exploring the momentum/reversal family on a noise world (choice 1)."""
+def _variant_net(
+    pnl: Mapping[tuple[int, int], tuple[list[float], list[float]]], v: Variant, lo: int, hi: int
+) -> list[float]:
+    gross, costs = pnl[(v.lookback, v.holding)]
+    return [v.sign * gross[t] - costs[t] for t in range(lo, hi)]
+
+
+@dataclass(frozen=True)
+class FamilyWorld:
+    """A noise world with every variant of the family run on it."""
+
+    cfg: BenchConfig
+    returns: list[list[float]]
+    variants: list[Variant]
+    bounds: Split
+    weights: dict[int, list[list[float] | None]]
+    pnl: dict[tuple[int, int], tuple[list[float], list[float]]]  # (lookback, holding): gross, cost
+    exploration: list[list[float]]  # each variant's daily net P&L on the exploration segment
+
+    @property
+    def best(self) -> int:
+        """The variant with the best exploration Sharpe ratio (ties: the first)."""
+        return max(range(len(self.variants)), key=lambda k: (_sharpe(self.exploration[k]), -k))
+
+    def ranked(self) -> list[int]:
+        """Variants from the best exploration Sharpe ratio down (ties: the first); starts
+        with ``best``."""
+        sharpe = [_sharpe(x) for x in self.exploration]
+        return sorted(range(len(sharpe)), key=lambda k: (-sharpe[k], k))
+
+    def net(self, v: Variant, lo: int, hi: int) -> list[float]:
+        return _variant_net(self.pnl, v, lo, hi)
+
+    def neighbours(self, v: Variant) -> list[Variant]:
+        """One step in lookback and one in holding, same sign."""
+        cfg = self.cfg
+        li, hi = cfg.lookbacks.index(v.lookback), cfg.holdings.index(v.holding)
+        return [
+            Variant(cfg.lookbacks[j], v.holding, v.sign)
+            for j in (li - 1, li + 1)
+            if 0 <= j < len(cfg.lookbacks)
+        ] + [
+            Variant(v.lookback, cfg.holdings[j], v.sign)
+            for j in (hi - 1, hi + 1)
+            if 0 <= j < len(cfg.holdings)
+        ]
+
+    def confirmation(
+        self, v: Variant, lo: int | None = None, hi: int | None = None
+    ) -> Confirmation:
+        """``v`` on confirmation days ``[lo, hi)`` (default: the whole confirmation segment)."""
+        lo = self.bounds.confirm if lo is None else lo
+        hi = self.bounds.end if hi is None else hi
+        gross, costs = self.pnl[(v.lookback, v.holding)]
+        window = range(lo, hi)
+        return Confirmation(
+            self.net(v, lo, hi),
+            [v.sign * gross[t] for t in window],
+            [costs[t] for t in window],
+            cohort_returns(
+                self.returns, self.weights[v.lookback], v.holding, v.sign, self.cfg.cost, lo, hi
+            ),
+            v.holding,
+            [_mean(self.net(n, lo, hi)) for n in self.neighbours(v)],
+        )
+
+
+def family_world(cfg: BenchConfig, model: NoiseModel, rng: random.Random) -> FamilyWorld:
+    """A noise world and the family's daily P&L on it (draws only the returns from ``rng``)."""
     returns = generate(model, cfg.instruments, cfg.days, rng)
     variants = family(cfg)
     sp = split(cfg, max(cfg.lookbacks) + max(cfg.holdings))
@@ -369,40 +468,21 @@ def run_family(cfg: BenchConfig, model: NoiseModel, rng: random.Random) -> Trial
     pnl: dict[tuple[int, int], tuple[list[float], list[float]]] = {}
     for lb, h in itertools.product(cfg.lookbacks, cfg.holdings):
         pnl[(lb, h)] = daily_pnl(returns, portfolio(weights[lb], h), cfg.cost)
+    exploration = [_variant_net(pnl, v, sp.start, sp.exploration_end) for v in variants]
+    return FamilyWorld(cfg, returns, variants, sp, weights, pnl, exploration)
 
-    def net(v: Variant, lo: int, hi: int) -> list[float]:
-        gross, costs = pnl[(v.lookback, v.holding)]
-        return [v.sign * gross[t] - costs[t] for t in range(lo, hi)]
 
-    exploration = [net(v, sp.start, sp.exploration_end) for v in variants]
-    best = max(range(len(variants)), key=lambda k: (_sharpe(exploration[k]), -k))
-    v = variants[best]
-    gross, costs = pnl[(v.lookback, v.holding)]
-    window = range(sp.confirm, sp.end)
-    li, hi_ = cfg.lookbacks.index(v.lookback), cfg.holdings.index(v.holding)
-    neighbours = [
-        Variant(cfg.lookbacks[j], v.holding, v.sign)
-        for j in (li - 1, li + 1)
-        if 0 <= j < len(cfg.lookbacks)
-    ] + [
-        Variant(v.lookback, cfg.holdings[j], v.sign)
-        for j in (hi_ - 1, hi_ + 1)
-        if 0 <= j < len(cfg.holdings)
-    ]
+def run_family(cfg: BenchConfig, model: NoiseModel, rng: random.Random) -> Trial:
+    """One researcher exploring the momentum/reversal family on a noise world (choice 1)."""
+    w = family_world(cfg, model, rng)
+    best = w.best
     return _confirm(
         cfg,
-        exploration,
+        w.exploration,
         best,
-        net(v, sp.confirm, sp.end),
-        [v.sign * gross[t] for t in window],
-        [costs[t] for t in window],
-        cohort_returns(
-            returns, weights[v.lookback], v.holding, v.sign, cfg.cost, sp.confirm, sp.end
-        ),
-        v.holding,
-        [_mean(net(n, sp.confirm, sp.end)) for n in neighbours],
+        w.confirmation(w.variants[best]),
         rng,
-        [str(x) for x in variants],
+        [str(x) for x in w.variants],
     )
 
 
@@ -432,18 +512,16 @@ def run_many(
     best = max(range(cfg.hypotheses), key=lambda k: (_sharpe(exploration[k]), -k))
     gross, costs = pnl[best]
     window = range(sp.confirm, sp.end)
-    return _confirm(
-        cfg,
-        exploration,
-        best,
+    confirmation = Confirmation(
         [gross[t] - costs[t] for t in window],
         [gross[t] for t in window],
         [costs[t] for t in window],
         cohort_returns(returns, weights[best], 1, 1, cfg.cost, sp.confirm, sp.end),
         1,
         [],
-        rng,
-        [f"feature {k}" for k in range(cfg.hypotheses)],
+    )
+    return _confirm(
+        cfg, exploration, best, confirmation, rng, [f"feature {k}" for k in range(cfg.hypotheses)]
     )
 
 
