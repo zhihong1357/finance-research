@@ -101,7 +101,7 @@
 
 **要点**
 
-- **多重检验。** 做 N 次检验取最好的一次，显著性必须按 N 折损。折损夏普（Bailey & López de Prado, 2014）和回测过拟合概率（Bailey, Borwein, López de Prado & Zhu, 2017）处理的是策略选择；Holm、Benjamini–Hochberg、White（2000）的现实检验和 Romano–Wolf（2005）的逐步法处理的是一般的假设族。
+- **多重检验。** 做 N 次检验取最好的一次，显著性必须按 N 折损。折损夏普（Bailey & López de Prado, 2014）和回测过拟合概率（Bailey, Borwein, López de Prado & Zhu, 2017）处理的是策略选择；Holm、Benjamini–Hochberg、White（2000）的现实检验、Hansen（2005）的 SPA 检验和 Romano–Wolf（2005）的逐步法处理的是一般的假设族。
 - **相依数据的推断。** 金融收益有自相关，重叠窗口的观测更不独立。直接套用独立样本的公式会严重高估显著性。要用分块自助法（Politis & Romano, 1994）、稳健标准误，以及带清洗和禁区的交叉验证（López de Prado, 2018）。
 - **厚尾。** 极端值出现的频率远高于正态分布的预期。夏普比率会高估安全性，要同时看预期亏损和回撤分布。
 - **遍历性**（Peters, 2019）。财富是连乘的过程，单次赌局的期望值不代表长期结果。一个每次以相同概率涨 50% 或跌 40% 的赌局，单次期望是 +5%，长期每次的实际增长是 √(1.5 × 0.6) − 1 = −5.1%，一直玩下去必然归零。
@@ -258,6 +258,7 @@
 - Grinold, R. (1989). The Fundamental Law of Active Management. *Journal of Portfolio Management*, 15(3).
 - Grinold, R. & Kahn, R. (2000). *Active Portfolio Management*, 2nd ed. McGraw-Hill.
 - Gu, S., Kelly, B. & Xiu, D. (2020). Empirical Asset Pricing via Machine Learning. *Review of Financial Studies*, 33(5).
+- Hansen, P. R. (2005). A Test for Superior Predictive Ability. *Journal of Business & Economic Statistics*, 23(4).
 - Harvey, C., Liu, Y. & Zhu, H. (2016). … and the Cross-Section of Expected Returns. *Review of Financial Studies*, 29(1).
 - Hasbrouck, J. (1995). One Security, Many Markets: Determining the Contributions to Price Discovery. *Journal of Finance*, 50(4).
 - Hou, K., Xue, C. & Zhang, L. (2020). Replicating Anomalies. *Review of Financial Studies*, 33(5).
