@@ -10,7 +10,7 @@ Fill rules (``FillRules``, from ``config/simulator.toml``):
 - An order decided at ``t`` becomes active at ``t + latency`` and can only fill
   on a bar that starts at or after that instant (decision 0012).
 - **Market order**: fills on the first such bar at its open, so that bar must
-  start by ``expires_at`` if the order has one. Fee (taker), half the spread
+  start by the order's expiry (below). Fee (taker), half the spread
   and impact are booked as costs (``sim.costs``); impact is further multiplied
   by the scenario's ``impact_multiplier``.
 - **Impact is charged per metaorder** (``sim.costs``): a market fill continues
@@ -18,13 +18,26 @@ Fill rules (``FillRules``, from ``config/simulator.toml``):
   the cost model's ``metaorder_window`` of that metaorder's first fill, and
   then pays only the impact it adds. Otherwise it starts a new one. Splitting
   an order, in one bar or over several, saves no impact.
+- **Limit order that can fill the moment it is active** (prior-art L2): if the
+  first bar it can trade on already *opens* through the limit (a buy opening
+  below it, a sell above), it would not rest in the book but take liquidity at
+  once. It is filled like a market order: all of it, at that open, as a taker
+  (taker fee, half the spread, impact). Only that first bar counts; a gap
+  through the limit on a later bar is an ordinary resting fill (next rule).
+  The open plus costs may come out beyond the limit, where a real order would
+  fill only in part; that edge is ignored (the open alone respects the limit).
 - **Limit order**: fills only if the price trades *through* the limit, not just
   touches it: a buy when the bar's low is below the limit, a sell when its high
   is above. It fills at the limit even if the bar opened better, pays the maker
   fee and no spread or impact, and fills ``limit_fill_fraction`` of its size;
-  the rest is cancelled. Only a bar that *ends* by ``expires_at`` can fill it:
-  a bar cannot say whether its high or low came before or after an instant
+  the rest is cancelled. Only a bar that *ends* by the order's expiry can fill
+  it: a bar cannot say whether its high or low came before or after an instant
   inside it, so a bar that straddles the expiry does not count.
+- **Expiry**: ``expires_at`` if the order has one. If not, and the fill rules
+  give a ``max_wait_bars`` (prior-art L4), the order expires ``max_wait_bars``
+  bar lengths after it becomes active (``decided_at + latency``), so it cannot
+  fill long after the decision on a price that no longer bears on it (Bybit has
+  no bar for a minute without trades). Expired orders are left unfilled.
 - **Funding** at instant ``T`` is settled on the position held before any fill
   at ``T``: settlements are processed before bars that start at ``T``. A limit
   fill is booked at its bar's start but may have come at any moment of the bar,
@@ -94,8 +107,11 @@ class FillRules:
     latency: timedelta
     limit_fill_fraction: float
     impact_multiplier: float
+    max_wait_bars: int | None = None  # how long an order without an expiry may wait, once active
 
     def __post_init__(self) -> None:
+        if self.max_wait_bars is not None and self.max_wait_bars < 1:
+            raise SimulationError(f"max wait must be at least one bar, got {self.max_wait_bars}")
         if self.latency < timedelta(0):
             raise SimulationError(f"latency must not be negative, got {self.latency}")
         if not 0.0 < self.limit_fill_fraction <= 1.0:
@@ -111,10 +127,12 @@ class FillRules:
 def fill_rules(scenario: FillScenario, config: Mapping[str, Any] | None = None) -> FillRules:
     """The fill rules of ``scenario``, from ``config/simulator.toml`` unless ``config`` is given."""
     cfg = (load_toml("simulator") if config is None else config)[scenario.value]
+    wait = cfg.get("max_wait_bars")
     return FillRules(
         timedelta(seconds=float(cfg["latency_seconds"])),
         float(cfg["limit_fill_fraction"]),
         float(cfg["impact_multiplier"]),
+        None if wait is None else int(wait),
     )
 
 
@@ -271,12 +289,21 @@ def _limit_fills(order: Order, bar: Bar) -> bool:
     return bar.low < limit if order.quantity > 0.0 else bar.high > limit
 
 
-def _expired(order: Order, bar: Bar, bar_length: timedelta) -> bool:
-    """Too late for this bar: a market order fills at its open, a limit order needs all of it."""
-    if order.expires_at is None:
-        return False
-    last_instant = bar.start if order.kind is OrderKind.MARKET else bar.start + bar_length
-    return last_instant > order.expires_at
+def _opens_through(order: Order, bar: Bar) -> bool:
+    """The bar opens through the limit: the order can take liquidity at once."""
+    limit = _limit(order)
+    return bar.open < limit if order.quantity > 0.0 else bar.open > limit
+
+
+def _expiry(order: Order, rules: FillRules, bar_length: timedelta) -> datetime | None:
+    """The order's own expiry, else ``max_wait_bars`` bar lengths after it becomes active."""
+    if order.expires_at is not None or rules.max_wait_bars is None:
+        return order.expires_at
+    return order.decided_at + rules.latency + rules.max_wait_bars * bar_length
+
+
+def _too_late(expiry: datetime | None, last_instant: datetime) -> bool:
+    return expiry is not None and last_instant > expiry
 
 
 @dataclass(slots=True)
@@ -304,6 +331,7 @@ def simulate(
     metaorders: dict[str, _Metaorder] = {}
     mark_due: datetime | None = None  # a bar end whose equity point is not yet taken
     in_bar: dict[str, list[tuple[datetime, float]]] = {}  # limit fills: (their bar's end, quantity)
+    seen: set[int] = set()  # orders that have had their first bar
 
     def mark(at: datetime) -> None:
         value = math.fsum(q * closes[name] for name, q in result.positions.items())
@@ -338,10 +366,15 @@ def simulate(
             if o.instrument != bar.instrument or o.decided_at + rules.latency > bar.start:
                 still.append(i)
                 continue
-            if _expired(o, bar, bar_length):
+            first = i not in seen
+            seen.add(i)
+            expiry = _expiry(o, rules, bar_length)
+            # a market order, or a limit order already through at its first open, takes at the open
+            takes = o.kind is OrderKind.MARKET or (first and _opens_through(o, bar))
+            if _too_late(expiry, bar.start if takes else bar.start + bar_length):
                 result.unfilled.append(i)
                 continue
-            if o.kind is OrderKind.MARKET:
+            if takes:
                 quantity, price, liquidity = o.quantity, bar.open, Liquidity.TAKER
             elif _limit_fills(o, bar):
                 quantity, price = o.quantity * rules.limit_fill_fraction, _limit(o)
