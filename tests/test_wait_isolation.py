@@ -38,6 +38,7 @@ ADDED_DURING_THE_WAIT = (
     "finresearch.stats.clusters",
     "finresearch.stats.crossval",
     "finresearch.stats.hac",
+    "finresearch.stats.maxima",
     "finresearch.stats.montecarlo",
     "finresearch.stats.multiple",
     "finresearch.stats.overfitting",

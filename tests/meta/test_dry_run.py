@@ -26,7 +26,8 @@ def test_summarize_counts_by_hand() -> None:
         "strength": 0.0,
         "years": 0,
         "selected_index": 3,
-        "k_eff": 2,
+        "clusters": 2,
+        "equivalent_trials": 3.0,
         "t_nw": 0.5,
         "t_no": 0.5,
         "dsr": 0.2,
@@ -40,6 +41,7 @@ def test_summarize_counts_by_hand() -> None:
     assert "t >= 3 (non-overlapping): 1/2 = 50.0%" in text
     assert "t >= 3 (Newey-West): 0/2 = 0.0%" in text
     assert "deflated Sharpe >= 0.95: 1/2" in text
-    assert "effective trials: {2: 2}" in text
+    assert "ONC clusters: {2: 2}" in text
+    assert "equivalent independent trials: median 3.0, range 3.0 to 3.0" in text
     planted = {**base, "strength": 0.05, "years": 2, "selected_index": 0, "pass_no": True}
     assert "detection: strength 0.05, 2 years: kept 1/1, supported 1/1" in summarize([planted])

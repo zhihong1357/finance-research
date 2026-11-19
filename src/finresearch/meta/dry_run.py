@@ -78,7 +78,8 @@ def run_task(task: Task) -> dict[str, Any]:
         "selected": r.selected,
         "selected_index": r.selected_index,
         "exploration_sharpe": r.exploration_sharpe,
-        "k_eff": r.effective_trials,
+        "clusters": r.clusters,
+        "equivalent_trials": r.equivalent_trials,
         "t_nw": r.t_newey_west,
         "t_no": r.t_nonoverlapping,
         "dsr": r.dsr,
@@ -117,8 +118,13 @@ def summarize(rows: Sequence[Mapping[str, Any]]) -> str:
             for key in ("t_nw", "t_no"):
                 values = [r[key] for r in g]
                 lines.append(f"  {key}: mean {fmean(values):.3f}, sd {stdev(values):.3f}")
-            keff = sorted(Counter(r["k_eff"] for r in g).items())
-            lines.append(f"  effective trials: {dict(keff)}")
+            groups = sorted(Counter(r["clusters"] for r in g).items())
+            lines.append(f"  ONC clusters: {dict(groups)}")
+            equivalent = sorted(r["equivalent_trials"] for r in g)
+            lines.append(
+                f"  equivalent independent trials: median {equivalent[len(equivalent) // 2]:.1f}, "
+                f"range {equivalent[0]:.1f} to {equivalent[-1]:.1f}"
+            )
             lines.append(f"  mean PBO {fmean(r['pbo'] for r in g):.3f}")
     cells: dict[tuple[float, int], list[Mapping[str, Any]]] = defaultdict(list)
     for r in rows:
