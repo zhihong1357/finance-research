@@ -8,8 +8,10 @@ any order of execution; ``summarize`` turns them into the rates that the
 dry-run report quotes. ``--rough`` runs the rougher-noise comparison instead
 (``rough_tasks``): the two modes without costs on smooth noise and with each
 optional part of ``meta.noise`` switched on, every setting on the same seeds,
-so the rough worlds share their GARCH paths with the smooth ones. Not for
-setting thresholds: a few hundred runs cannot resolve a 0.135% rate (decision 0023 asks for 40,062).
+so the rough worlds share their GARCH paths with the smooth ones (in the
+many-hypotheses mode the features are drawn after the returns, so there they
+differ). Not for setting thresholds: a few hundred runs cannot resolve a
+0.135% rate (decision 0023 asks for 40,062).
 """
 
 import json
