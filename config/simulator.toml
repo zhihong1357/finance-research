@@ -12,9 +12,58 @@ impact_multiplier = 1.0
 # 5 根留出几根空缺的余地，又把成交限制在决定之后几个周期以内（1 分钟数据上是 5 分钟，日线上是 5 天）。
 # 按 K 线根数而不是秒数计，日线和分钟线上意思一样。示意值，没有用数据校准；要挂得更久的订单自己写到期时间。
 max_wait_bars = 5
+liquidate_at_extreme = false  # 强平按触发价成交（K 线开盘已越过触发价时按开盘价），见 sim/engine.py
 
 [stress]
 latency_seconds = 120       # 延迟加倍
 limit_fill_fraction = 0.5   # 限价单只成交一半，其余撤单
 impact_multiplier = 2.0     # 冲击成本加倍
 max_wait_bars = 5           # 与保守情形相同：等待上限不是压力情形要放大的假设
+liquidate_at_extreme = true # 强平按这根 K 线对持仓最不利的极值成交（多头最低价、空头最高价）
+
+# ---------------------------------------------------------------- 保证金与强平（Phase 4.3b，src/finresearch/sim/margin.py）
+# 维持保证金按名义金额分档：维持保证金 = 名义金额 × 本档费率 − 速算扣除额。
+# 这里只写每档的上限（caps，最后一档没有上限，所以比 rates 少一个）和费率（rates）；
+# 速算扣除额由"跨档连续"算出，与 Binance 公布的维持保证金速算额一致（下面 BTCUSDT 逐档核对过）。
+# 表按交易所、再按品种（上市表里的名字）查；没有列出的品种用 default 表。
+#
+# 已核实（2026-11-19 读取）：
+# - Binance 的公式"维持保证金 = 仓位名义价值 × 维持保证金率 − 维持保证金速算额"：
+#   https://www.binance.com/en/support/faq/leverage-and-margin-of-usd%E2%93%A2-m-futures-360033162192 （页面 2026-03-27 更新）
+# - Binance 的强平条件"保证金余额 < 维持保证金"、按标记价格判断、强平清算费从剩余资产里扣、
+#   穿仓由风险保险基金接管、不够时自动减仓：
+#   https://www.binance.com/en/support/faq/liquidation-protocols-360033525271 （页面 2026-11-16 更新）
+# - Binance BTCUSDT、ETHUSDT 的前五档（上限、费率、速算额、最高杠杆）：Binance 网站"杠杆与保证金"页面
+#   https://www.binance.com/en/futures/trading-rules/perpetual/leverage-margin 所用的公开数据接口
+#   （bapi/futures/v1/friendly/future/common/brackets，表的更新时间 2025-08-19）。两个品种前四档相同：
+#   0–30 万 0.40%（150 倍）、30–80 万 0.50%（速算额 300）、80–300 万 0.65%（1,500）、300–1,200 万 1.00%（12,000）；
+#   第五档 2.00%（132,000），BTC 到 7,000 万、ETH 到 5,000 万。速算额与本文件的连续算法逐档一致。
+# - 同一来源：1,089 个 U 本位合约里，第一档费率从 0.4% 到 16.67% 不等，最常见的是 2.5%（239 个）、1.5%、2%、1%、5%。
+#
+# 未核实（示意值）：
+# - Binance 的强平清算费率：官方页面只说"见交易参数"，没读到数字。
+# - Bybit 的全部数值：官方帮助中心返回 503，接口在本会话所在地区被拒绝访问，没读到。
+# - 两家的 default 表：真实的表因品种而异（见上），Phase 4.8 在真实品种上验收时按上市表逐个填入。
+#   在那之前 default 取偏严的一档：第一档 5%，比最常见的 2.5% 严，但仍有约 18 个品种更严（10% 以上）。
+
+[margin.binance]
+liquidation_fee = 0.015     # 示意值，未核实：取常见说法里偏高的一边；实际从剩余资产里扣，不会单独把权益扣到负数
+
+[margin.binance.tiers.default]
+caps = [50_000.0, 250_000.0, 1_000_000.0]
+rates = [0.05, 0.10, 0.125, 0.25]     # 示意值，见上
+
+[margin.binance.tiers.BTCUSDT]        # 已核实，见上（第五档以后没有列出：第五档开放到无穷，偏严）
+caps = [300_000.0, 800_000.0, 3_000_000.0, 12_000_000.0]
+rates = [0.004, 0.005, 0.0065, 0.01, 0.02]
+
+[margin.binance.tiers.ETHUSDT]        # 已核实，同上
+caps = [300_000.0, 800_000.0, 3_000_000.0, 12_000_000.0]
+rates = [0.004, 0.005, 0.0065, 0.01, 0.02]
+
+[margin.bybit]
+liquidation_fee = 0.015     # 示意值，未核实
+
+[margin.bybit.tiers.default]          # 示意值，未核实：与 Binance 的 default 相同
+caps = [50_000.0, 250_000.0, 1_000_000.0]
+rates = [0.05, 0.10, 0.125, 0.25]
