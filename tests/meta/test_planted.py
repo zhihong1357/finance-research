@@ -48,24 +48,29 @@ def test_estimate_strength_by_hand() -> None:
     assert e.n == 3
 
 
-@pytest.mark.parametrize(("strength", "persistence"), [(0.0, 0.0), (0.05, 0.9)])
+@pytest.mark.parametrize(("strength", "persistence"), [(0.0, 0.0), (0.05, 0.9), (0.5, 0.0)])
 def test_the_planted_strength_is_found_with_the_error_theory_gives(
     strength: float, persistence: float
 ) -> None:
     # 200 repetitions on factory noise, 5 instruments x 400 days: 1995 pairs, so the standard
-    # error is about sqrt((1 + strength^2) / 1995) = 0.0224. The estimates must centre on the
-    # truth (within 3 standard errors of their mean), spread as the theory says (within 15%),
-    # and their 95% intervals must cover the truth about 95% of the time.
+    # error is about sqrt(1 / 1995) = 0.0224 whatever the strength: the residual is the
+    # standardised noise (variance 1), the planted part is explained. (sqrt((1 + strength^2) /
+    # 1995) would be 11.8% too large at strength 0.5.) The estimates must centre on the truth
+    # (within 3 standard errors of their mean), spread as the theory says (within 15%), the
+    # reported standard errors must average the theory (within 3%), and their 95% intervals
+    # must cover the truth about 95% of the time.
     rng = random.Random(20261118)
     m = noise_model()
-    estimates, covered = [], 0
+    estimates, errors, covered = [], [], 0
     for _ in range(200):
         e = estimate_strength(plant(generate(m, 5, 400, rng), strength, persistence, rng))
         estimates.append(e.value)
+        errors.append(e.standard_error)
         covered += abs(e.value - strength) <= 1.959964 * e.standard_error
-    theory = math.sqrt((1 + strength**2) / (5 * 399))
+    theory = math.sqrt(1 / (5 * 399))
     assert abs(fmean(estimates) - strength) < 3 * theory / math.sqrt(200)
     assert stdev(estimates) == pytest.approx(theory, rel=0.15)
+    assert fmean(errors) == pytest.approx(theory, rel=0.03)
     low, high = wilson_interval(covered, 200, 0.99)
     assert low <= 0.95 <= high
 

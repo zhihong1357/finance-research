@@ -227,7 +227,8 @@ def test_invalid_inputs_are_refused() -> None:
         lambda: block_lengths(1.0, 0.0, 100),
         lambda: block_lengths(math.nan, 1.0, 100),
         lambda: block_lengths(1.0, 1.0, 0),
-        lambda: optimal_block_length([1.0] * 12),  # too short: m_max is 4 + 5 = 9
+        # too short: 11 observations, m_max = ceil(sqrt(11)) + 5 = 9, leaving 2 pairs (3 needed)
+        lambda: optimal_block_length([float(v % 3) for v in range(11)]),
         lambda: optimal_block_length([1.0] * 100),  # constant
         lambda: optimal_block_length([1.0, math.nan] * 50),
         lambda: stationary_blocks(0, 2.0, rng),
@@ -245,3 +246,6 @@ def test_invalid_inputs_are_refused() -> None:
     for call in bad_calls:
         with pytest.raises(BootstrapError):
             call()
+    with pytest.raises(BootstrapError, match="too few"):  # refused for its length, nothing else
+        optimal_block_length([float(v % 3) for v in range(11)])
+    assert optimal_block_length([float(v % 3) for v in range(12)])  # 12 leaves 3 pairs: enough
