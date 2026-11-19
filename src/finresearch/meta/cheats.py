@@ -59,7 +59,7 @@ from finresearch.meta.bench import (
 from finresearch.meta.noise import NoiseModel, noise_model
 from finresearch.stats.clusters import correlation_matrix
 from finresearch.stats.maxima import null_benchmark
-from finresearch.verdict import Thresholds, judge
+from finresearch.verdict import Outcome, Thresholds, judge
 
 _SEED_BASE = 50_000_000  # task i has seed _SEED_BASE + i (apart from the dry run's seeds)
 _COMBINED_PEEK = 3
@@ -106,6 +106,12 @@ class Claim:
     t: float
     dsr: float
     passed: bool  # the whole verdict on the reported evidence
+    # The same claim judged with the deflated Sharpe gate fixed as the independent review
+    # proposes: the confirmation is a fresh test, so its probabilistic Sharpe ratio is taken
+    # against 0 instead of against the family's expected best (no second deflation).
+    dsr_fresh: float
+    passed_fresh: bool
+    failed_fresh: tuple[str, ...]  # the checks that failed in that verdict
 
 
 def window_bounds(confirm: int, end: int, share: tuple[float, float]) -> tuple[int, int]:
@@ -143,8 +149,14 @@ class _Claims:
         benchmark: float | None = None,
     ) -> Claim:
         bm = self.stats.benchmark if benchmark is None else benchmark
+        th = thresholds or self.defaults
         e = evidence(self.world.cfg, bm, self.stats.pbo, c, t)
-        return Claim(str(v), t, e.dsr, judge(e, thresholds or self.defaults).passed)
+        fresh = evidence(self.world.cfg, 0.0, self.stats.pbo, c, t)
+        verdict = judge(fresh, th)
+        failed = tuple(k.value for k, o in verdict.outcomes.items() if o is Outcome.FAILED)
+        return Claim(
+            str(v), t, e.dsr, judge(e, th).passed, fresh.dsr, verdict.passed, tuple(sorted(failed))
+        )
 
     def honest_t(self, v: Variant) -> Claim:
         c = self.run(v)
@@ -229,9 +241,23 @@ def rates(
             *((f"t >= {lv:g}", _t_at_least(lv)) for lv in levels),
             (f"dsr >= {dsr_min:g}", lambda c: c["dsr"] >= dsr_min),
             ("pipeline", lambda c: bool(c["passed"])),
+            (f"fresh dsr >= {dsr_min:g}", lambda c: c["dsr_fresh"] >= dsr_min),
+            ("pipeline (fresh dsr)", lambda c: bool(c["passed_fresh"])),
         ]
         out[name] = {g: Rate(sum(1 for c in claims if test(c)), n) for g, test in gates}
     return out
+
+
+def blockers(rows: Sequence[Mapping[str, Any]], name: str, t: float) -> dict[str, int]:
+    """Among ``name``'s claims with t at least ``t``, how often each check failed when the
+    deflated Sharpe gate is fixed (a claim can fail several)."""
+    out: dict[str, int] = {}
+    for r in rows:
+        c = r["claims"][name]
+        if c["t"] >= t:
+            for check in c["failed_fresh"]:
+                out[check] = out.get(check, 0) + 1
+    return dict(sorted(out.items()))
 
 
 def summarize(rows: Sequence[Mapping[str, Any]], cc: CheatsConfig) -> str:
@@ -247,6 +273,10 @@ def summarize(rows: Sequence[Mapping[str, Any]], cc: CheatsConfig) -> str:
             ratio = r.hits / honest[g].hits if honest[g].hits else float("nan")
             parts.append(f"{g}: {r.hits} ({100 * low:.2f}-{100 * high:.2f}%) x{ratio:.2f}")
         lines.append(f"{name}: " + "; ".join(parts))
+    lines.append(f"checks failing among claims with t >= {th.t:g}, deflated Sharpe gate fixed:")
+    for name in table:
+        reached = sum(1 for r in rows if r["claims"][name]["t"] >= th.t)
+        lines.append(f"  {name} ({reached} reached t): {blockers(rows, name, th.t)}")
     return "\n".join(lines)
 
 
