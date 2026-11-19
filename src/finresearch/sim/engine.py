@@ -26,7 +26,11 @@ Fill rules (``FillRules``, from ``config/simulator.toml``):
   a bar cannot say whether its high or low came before or after an instant
   inside it, so a bar that straddles the expiry does not count.
 - **Funding** at instant ``T`` is settled on the position held before any fill
-  at ``T``: settlements are processed before bars that start at ``T``. The cash
+  at ``T``: settlements are processed before bars that start at ``T``. A limit
+  fill is booked at its bar's start but may have come at any moment of the bar,
+  so a settlement strictly inside that bar counts the fill only if that costs
+  more (or earns less) than leaving it out: the worse of the two. A market fill
+  happens at the open, before anything inside the bar. The cash
   moved is ``sim.costs.funding_cash(position x mark price, rate)``.
 
 Accounting: cash starts at ``initial_cash``; a fill of ``q`` at ``p`` moves cash
@@ -299,6 +303,7 @@ def simulate(
     closes: dict[str, float] = {}
     metaorders: dict[str, _Metaorder] = {}
     mark_due: datetime | None = None  # a bar end whose equity point is not yet taken
+    in_bar: dict[str, list[tuple[datetime, float]]] = {}  # limit fills: (their bar's end, quantity)
 
     def mark(at: datetime) -> None:
         value = math.fsum(q * closes[name] for name, q in result.positions.items())
@@ -313,13 +318,20 @@ def simulate(
             mark_due = None
         if kind == _FUNDING:
             f = funding[k]
-            position = result.positions.get(f.instrument, 0.0)
+            # limit fills whose bar is still running may have come before or after this instant:
+            # each counts only if that is the worse for the cash (funding is linear in position)
+            unsure = [q for end, q in in_bar.get(f.instrument, []) if at < end]
+            position = result.positions.get(f.instrument, 0.0) - math.fsum(unsure)
+            for q in unsure:
+                if funding_cash(q * f.mark_price, f.rate) < 0.0:
+                    position += q
             if position:
                 cash = funding_cash(position * f.mark_price, f.rate)
                 result.cash += cash
                 result.funding.append(FundingPaid(at, f.instrument, position, f.rate, cash))
             continue
         bar = bars[k]
+        in_bar[bar.instrument] = []  # the instrument's earlier bars have ended (one grid)
         still: list[int] = []
         for i in pending:
             o = orders[i]
@@ -368,6 +380,8 @@ def simulate(
             result.cash -= notional + cost.total
             result.positions[o.instrument] = result.positions.get(o.instrument, 0.0) + quantity
             result.fills.append(Fill(i, bar.start, o.instrument, quantity, price, liquidity, cost))
+            if liquidity is Liquidity.MAKER:
+                in_bar[o.instrument].append((bar.start + bar_length, quantity))
         pending = still
         closes[bar.instrument] = bar.close
         end = bar.start + bar_length
