@@ -24,6 +24,7 @@ SRC = ROOT / "src" / "finresearch"
 ADDED_DURING_THE_WAIT = (
     "finresearch.meta",
     "finresearch.meta.bench",
+    "finresearch.meta.cheats",
     "finresearch.meta.dry_run",
     "finresearch.meta.noise",
     "finresearch.meta.planted",
