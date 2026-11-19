@@ -171,7 +171,9 @@ def rank_weights(base: Sequence[Sequence[float]], lookback: int) -> list[list[fl
     """Each day's weights from the sum of the last ``lookback`` values of ``base[i][t]``.
 
     Demeaned ranks scaled to gross exposure 1 (net 0); ``None`` until ``lookback``
-    values exist. Ties are ranked by instrument order.
+    values exist. Ties are ranked by instrument order. An instrument whose signal
+    is not finite (delisted, ``meta.noise``) is left out of that day's ranking and
+    gets weight 0; with fewer than two left, every weight is 0.
     """
     n, days = len(base), len(base[0])
     prefix: list[list[float]] = []
@@ -189,12 +191,39 @@ def rank_weights(base: Sequence[Sequence[float]], lookback: int) -> list[list[fl
             out.append(None)
             continue
         signal = [prefix[i][t + 1] - prefix[i][t + 1 - lookback] for i in range(n)]
+        live = [i for i in range(n) if math.isfinite(signal[i])]
+        if len(live) < n:
+            out.append(_partial_weights(signal, live, n))
+            continue
         order = sorted(range(n), key=lambda i: (signal[i], i))
         w = [0.0] * n
         for rank, i in enumerate(order, start=1):
             w[i] = (rank - centre) / gross
         out.append(w)
     return out
+
+
+def _partial_weights(signal: Sequence[float], live: Sequence[int], n: int) -> list[float]:
+    """``rank_weights`` over the instruments in ``live`` only; 0 for the rest."""
+    w = [0.0] * n
+    m = len(live)
+    if m < 2:  # noqa: PLR2004 - a cross-section needs two names
+        return w
+    centre = (m + 1) / 2.0
+    gross = math.fsum(abs(r - centre) for r in range(1, m + 1))
+    for rank, i in enumerate(sorted(live, key=lambda i: (signal[i], i)), start=1):
+        w[i] = (rank - centre) / gross
+    return w
+
+
+def tradable(returns: list[list[float]]) -> list[list[float]]:
+    """``returns`` with the days after a delisting (NaN) earning 0; itself if there are none.
+
+    A position still held when its instrument leaves is closed at the last price.
+    """
+    if all(math.isfinite(x) for r in returns for x in r):
+        return returns
+    return [[x if math.isfinite(x) else 0.0 for x in r] for r in returns]
 
 
 def portfolio(weights: Sequence[list[float] | None], holding: int) -> list[list[float] | None]:
@@ -461,10 +490,11 @@ class FamilyWorld:
 
 def family_world(cfg: BenchConfig, model: NoiseModel, rng: random.Random) -> FamilyWorld:
     """A noise world and the family's daily P&L on it (draws only the returns from ``rng``)."""
-    returns = generate(model, cfg.instruments, cfg.days, rng)
+    listed = generate(model, cfg.instruments, cfg.days, rng)
+    returns = tradable(listed)
     variants = family(cfg)
     sp = split(cfg, max(cfg.lookbacks) + max(cfg.holdings))
-    weights = {lb: rank_weights(returns, lb) for lb in cfg.lookbacks}
+    weights = {lb: rank_weights(listed, lb) for lb in cfg.lookbacks}
     pnl: dict[tuple[int, int], tuple[list[float], list[float]]] = {}
     for lb, h in itertools.product(cfg.lookbacks, cfg.holdings):
         pnl[(lb, h)] = daily_pnl(returns, portfolio(weights[lb], h), cfg.cost)
@@ -494,16 +524,28 @@ def run_many(
     With ``strength > 0``, feature 0 predicts the next day's return by
     ``strength`` times the instrument's volatility (detection curves, choice 4).
     """
-    returns = generate(model, cfg.instruments, cfg.days, rng)
+    listed = generate(model, cfg.instruments, cfg.days, rng)
     features = [
         [signal_path(cfg.days, cfg.persistence, rng) for _ in range(cfg.instruments)]
         for _ in range(cfg.hypotheses)
     ]
+    returns = tradable(listed)
+    if returns is not listed:  # a delisted instrument has no feature either
+        features = [
+            [
+                [v if math.isfinite(x) else math.nan for v, x in zip(f, r, strict=True)]
+                for f, r in zip(fs, listed, strict=True)
+            ]
+            for fs in features
+        ]
     if strength:
         for i, r in enumerate(returns):
-            m = _mean(r)
-            sd = math.sqrt(math.fsum((x - m) ** 2 for x in r) / (len(r) - 1))
-            for t in range(1, cfg.days):
+            alive = [x for x, y in zip(r, listed[i], strict=True) if math.isfinite(y)]
+            if len(alive) < 2:  # noqa: PLR2004 - a volatility needs two returns
+                continue
+            m = _mean(alive)
+            sd = math.sqrt(math.fsum((x - m) ** 2 for x in alive) / (len(alive) - 1))
+            for t in range(1, len(alive)):  # delisting is for good: listed days come first
                 r[t] += strength * sd * features[0][i][t - 1]
     sp = split(cfg, 2)
     weights = [rank_weights(f, 1) for f in features]
