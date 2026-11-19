@@ -3,7 +3,7 @@ import random
 
 import pytest
 
-from finresearch.meta.bench import BenchError, bench_config, family_world, run_family
+from finresearch.meta.bench import BenchError, bench_config, family_world, run_family, run_many
 from finresearch.meta.cheats import (
     CheatsConfig,
     blockers,
@@ -11,6 +11,7 @@ from finresearch.meta.cheats import (
     logged_trials,
     rates,
     run_cheats,
+    run_cheats_many,
     window_bounds,
 )
 from finresearch.meta.noise import noise_model
@@ -29,6 +30,7 @@ SMALL = {
 }
 CC = CheatsConfig(
     peeks=(3, 8),
+    many_peeks=(3, 6),
     windows=((0.0, 1.0), (0.0, 0.5), (0.5, 1.0)),
     t_floor=2.5,
     logged_variants=3,
@@ -91,6 +93,8 @@ def test_rates_and_blockers_by_hand() -> None:
     assert (r["fresh dsr >= 0.95"].hits, r["pipeline (fresh dsr)"].hits) == (2, 1)
     # among claims with t >= 3 (rows 2 and 3) only PBO stopped one
     assert blockers(rows, "honest", 3.0) == {"pbo": 1}
+    # without PBO (a single fixed strategy) row 3 passes as well
+    assert r["pipeline (fresh dsr, no pbo)"].hits == 2
 
 
 # ---------------------------------------------------------------- the claims
@@ -153,6 +157,35 @@ def test_without_costs_choosing_the_direction_is_the_absolute_t() -> None:
         assert math.isfinite(claims["direction"].t)
 
 
+def test_the_many_hypotheses_world_honest_claim_is_the_bench() -> None:
+    # the same check on the many-hypotheses world: run_cheats_many's honest claim is run_many's
+    for seed in range(3):
+        cfg = bench_config(**SMALL, cost=0.0006)
+        claims = run_cheats_many(cfg, CC, noise_model(), random.Random(seed), random.Random(seed))
+        trial = run_many(cfg, noise_model(), random.Random(seed))
+        assert claims["honest"].t == trial.t_nonoverlapping
+        assert claims["honest"].dsr == trial.dsr
+        assert claims["honest"].passed == trial.verdict_nonoverlapping.passed
+
+
+def test_no_cheat_reports_less_among_the_many_hypotheses() -> None:
+    # world by world, as in the family; without costs reversing a feature negates its t
+    for seed in range(8):
+        for cost in (0.0, 0.0006):
+            claims = run_cheats_many(
+                bench_config(**SMALL, cost=cost),
+                CC,
+                noise_model(),
+                random.Random(seed),
+                random.Random(seed),
+            )
+            honest = claims["honest"]
+            for name in ("direction", "peek 3", "peek 6", "method", "sub-period", "combined"):
+                assert claims[name].t >= honest.t, (seed, cost, name)
+            if cost == 0.0:
+                assert claims["direction"].t == abs(honest.t)
+
+
 def test_the_configured_cheats_load() -> None:
     cc = cheats_config()
     assert (0.0, 1.0) in cc.windows
@@ -162,6 +195,7 @@ def test_the_configured_cheats_load() -> None:
 def test_invalid_settings_are_refused() -> None:
     good = {
         "peeks": (3,),
+        "many_peeks": (3,),
         "windows": ((0.0, 1.0),),
         "t_floor": 2.5,
         "logged_variants": 3,
@@ -172,6 +206,7 @@ def test_invalid_settings_are_refused() -> None:
     bad = [
         {"peeks": ()},
         {"peeks": (0,)},
+        {"many_peeks": ()},
         {"windows": ((0.0, 0.5),)},  # the whole segment must be offered
         {"windows": ((0.0, 1.0), (0.5, 0.5))},
         {"logged_variants": 1},
