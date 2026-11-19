@@ -425,6 +425,10 @@ class FamilyWorld:
     def net(self, v: Variant, lo: int, hi: int) -> list[float]:
         return _variant_net(self.pnl, v, lo, hi)
 
+    def mirror(self, v: Variant) -> Variant:
+        """The same lookback and holding, the opposite sign."""
+        return Variant(v.lookback, v.holding, -v.sign)
+
     def neighbours(self, v: Variant) -> list[Variant]:
         """One step in lookback and one in holding, same sign."""
         cfg = self.cfg
@@ -486,10 +490,64 @@ def run_family(cfg: BenchConfig, model: NoiseModel, rng: random.Random) -> Trial
     )
 
 
-def run_many(
+@dataclass(frozen=True)
+class Feature:
+    """One of the many hypotheses: trade feature ``index`` with it (+1) or against it (-1)."""
+
+    index: int
+    sign: int = 1
+
+    def __str__(self) -> str:
+        return f"feature {self.index}" + ("" if self.sign > 0 else " reversed")
+
+
+@dataclass(frozen=True)
+class ManyWorld:
+    """A noise world with every one of the many hypotheses run on it (lookback 1, holding 1)."""
+
+    cfg: BenchConfig
+    returns: list[list[float]]
+    features: list[Feature]
+    bounds: Split
+    weights: list[list[list[float] | None]]
+    pnl: list[tuple[list[float], list[float]]]  # per feature: gross, cost
+    exploration: list[list[float]]
+
+    @property
+    def best(self) -> int:
+        """The hypothesis with the best exploration Sharpe ratio (ties: the first)."""
+        return max(range(len(self.features)), key=lambda k: (_sharpe(self.exploration[k]), -k))
+
+    def ranked(self) -> list[int]:
+        """Hypotheses from the best exploration Sharpe ratio down (ties: the first)."""
+        sharpe = [_sharpe(x) for x in self.exploration]
+        return sorted(range(len(sharpe)), key=lambda k: (-sharpe[k], k))
+
+    def mirror(self, f: Feature) -> Feature:
+        return Feature(f.index, -f.sign)
+
+    def confirmation(
+        self, f: Feature, lo: int | None = None, hi: int | None = None
+    ) -> Confirmation:
+        """``f`` on confirmation days ``[lo, hi)`` (default: the whole confirmation segment)."""
+        lo = self.bounds.confirm if lo is None else lo
+        hi = self.bounds.end if hi is None else hi
+        gross, costs = self.pnl[f.index]
+        window = range(lo, hi)
+        return Confirmation(
+            [f.sign * gross[t] - costs[t] for t in window],
+            [f.sign * gross[t] for t in window],
+            [costs[t] for t in window],
+            cohort_returns(self.returns, self.weights[f.index], 1, f.sign, self.cfg.cost, lo, hi),
+            1,
+            [],
+        )
+
+
+def many_world(
     cfg: BenchConfig, model: NoiseModel, rng: random.Random, strength: float = 0.0
-) -> Trial:
-    """Many independent hypotheses tried once each; the best is confirmed (choice 3).
+) -> ManyWorld:
+    """A noise world and every hypothesis's daily P&L on it.
 
     With ``strength > 0``, feature 0 predicts the next day's return by
     ``strength`` times the instrument's volatility (detection curves, choice 4).
@@ -509,19 +567,27 @@ def run_many(
     weights = [rank_weights(f, 1) for f in features]
     pnl = [daily_pnl(returns, portfolio(w, 1), cfg.cost) for w in weights]
     exploration = [[g[t] - c[t] for t in range(sp.start, sp.exploration_end)] for g, c in pnl]
-    best = max(range(cfg.hypotheses), key=lambda k: (_sharpe(exploration[k]), -k))
-    gross, costs = pnl[best]
-    window = range(sp.confirm, sp.end)
-    confirmation = Confirmation(
-        [gross[t] - costs[t] for t in window],
-        [gross[t] for t in window],
-        [costs[t] for t in window],
-        cohort_returns(returns, weights[best], 1, 1, cfg.cost, sp.confirm, sp.end),
-        1,
-        [],
-    )
+    hypotheses = [Feature(k) for k in range(cfg.hypotheses)]
+    return ManyWorld(cfg, returns, hypotheses, sp, weights, pnl, exploration)
+
+
+def run_many(
+    cfg: BenchConfig, model: NoiseModel, rng: random.Random, strength: float = 0.0
+) -> Trial:
+    """Many independent hypotheses tried once each; the best is confirmed (choice 3).
+
+    With ``strength > 0``, feature 0 predicts the next day's return by
+    ``strength`` times the instrument's volatility (detection curves, choice 4).
+    """
+    w = many_world(cfg, model, rng, strength)
+    best = w.best
     return _confirm(
-        cfg, exploration, best, confirmation, rng, [f"feature {k}" for k in range(cfg.hypotheses)]
+        cfg,
+        w.exploration,
+        best,
+        w.confirmation(w.features[best]),
+        rng,
+        [str(f) for f in w.features],
     )
 
 
