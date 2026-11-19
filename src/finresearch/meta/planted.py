@@ -22,7 +22,8 @@ signal, pooled over instruments and time (through the origin). Because the
 signal is independent of the noise and the noise is unpredictable (each part is
 GARCH with zero mean), the estimate is unbiased with standard error
 ``sqrt(sum (y - b s)^2 / (m - 1)) / sqrt(sum s^2)`` over the ``m`` pairs; for
-large samples about ``sqrt((1 + strength^2) / m)``. Cross-correlation in the
+large samples about ``sqrt(1 / m)``: the residual ``y - b s`` is the standardised noise,
+whose variance is 1; the planted part is explained and does not add to it. Cross-correlation in the
 noise does not inflate it, since the signal is independent across instruments.
 """
 
